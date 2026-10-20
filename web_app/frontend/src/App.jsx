@@ -14,6 +14,8 @@ function App() {
   const [video, setVideo] = useState(null)
   const [videoUrl, setVideoUrl] = useState('')
   const [message, setMessage] = useState('')
+  const [selectedStroke, setSelectedStroke] = useState('Smash')
+  const [isDragging, setIsDragging] = useState(false)
   const fileInput = useRef(null)
 
   function chooseVideo(file) {
@@ -47,12 +49,17 @@ function App() {
 
   function startAnalysis() {
     if (!video) {
-      setMessage('Upload a badminton video before starting analysis.')
+      setMessage('Please upload a video before starting analysis.')
+      return
+    }
+
+    if (!selectedStroke) {
+      setMessage('Please select the stroke type.')
       return
     }
 
     setMessage(
-      'Video selected successfully! ML analysis will be available after the Python backend is connected.'
+      `${selectedStroke} video is ready. AI analysis will be available once the Python backend is connected.`
     )
   }
 
@@ -255,88 +262,240 @@ function App() {
         )}
 
         {page === 'Analyse Stroke' && (
-          <section className="page-content inner-page">
-            <p className="eyebrow">VIDEO-BASED PERFORMANCE REVIEW</p>
-            <h1>Analyse your stroke<span>.</span></h1>
-            <p className="subheading">
-              Upload a recording to begin your badminton movement analysis.
-            </p>
+          <section className="page-content inner-page upload-page">
+            <div className="upload-page-heading">
+              <p className="eyebrow">VIDEO-BASED PERFORMANCE REVIEW</p>
+              <h1>Analyse your stroke<span>.</span></h1>
+              <p className="subheading">
+                Upload your footage, select your stroke, and prepare for analysis.
+              </p>
+            </div>
 
-            <section className="upload-panel">
-              <div className="panel-heading">
-                <div>
-                  <h2>Upload your video</h2>
-                  <p>Choose a video file from your device.</p>
+            <div className="upload-layout">
+              <section className="upload-panel">
+                <div className="panel-heading">
+                  <div>
+                    <h2>Upload your video</h2>
+                    <p>Choose a recording from your device.</p>
+                  </div>
+                  <span className="muted-tag">GUEST ACCESS</span>
                 </div>
-                <span className="muted-tag">GUEST ACCESS</span>
-              </div>
 
-              <input
-                ref={fileInput}
-                type="file"
-                accept="video/*"
-                hidden
-                onChange={(event) => chooseVideo(event.target.files?.[0])}
-              />
+                <input
+                  ref={fileInput}
+                  type="file"
+                  accept="video/mp4,video/quicktime,video/webm,video/x-msvideo,video/*"
+                  hidden
+                  onChange={(event) => {
+                    chooseVideo(event.target.files?.[0])
+                    event.target.value = ''
+                  }}
+                />
 
-              {video ? (
-                <div className="selected-video">
-                  <video
-                    className="video-preview"
-                    src={videoUrl}
-                    controls
-                    playsInline
-                  />
-                  <div className="selected-video-info">
-                    <strong>{video.name}</strong>
-                    <p>{(video.size / (1024 * 1024)).toFixed(1)} MB</p>
-                    <button className="text-button" onClick={resetVideo}>
-                      Remove video
-                    </button>
+                {video ? (
+                  <div className="selected-video">
+                    <video
+                      className="video-preview"
+                      src={videoUrl}
+                      controls
+                      playsInline
+                    />
+
+                    <div className="selected-video-info">
+                      <div className="file-details">
+                        <span className="file-check">✓</span>
+                        <div>
+                          <strong title={video.name}>{video.name}</strong>
+                          <p>
+                            {(video.size / (1024 * 1024)).toFixed(1)} MB · Video ready
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="video-actions">
+                        <button
+                          type="button"
+                          className="secondary-button"
+                          onClick={() => fileInput.current?.click()}
+                        >
+                          Replace video
+                        </button>
+                        <button
+                          type="button"
+                          className="text-button"
+                          onClick={resetVideo}
+                        >
+                          Remove
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    className={`upload-dropzone ${isDragging ? 'dragging' : ''}`}
+                    onClick={() => fileInput.current?.click()}
+                    onDragEnter={(event) => {
+                      event.preventDefault()
+                      setIsDragging(true)
+                    }}
+                    onDragOver={(event) => event.preventDefault()}
+                    onDragLeave={(event) => {
+                      if (!event.currentTarget.contains(event.relatedTarget)) {
+                        setIsDragging(false)
+                      }
+                    }}
+                    onDrop={(event) => {
+                      event.preventDefault()
+                      setIsDragging(false)
+                      chooseVideo(event.dataTransfer.files?.[0])
+                    }}
+                  >
+                    <span className="upload-icon">
+                      <svg
+                        viewBox="0 0 24 24"
+                        width="30"
+                        height="30"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="1.7"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        aria-hidden="true"
+                      >
+                        <path d="M12 16V4" />
+                        <path d="m7 9 5-5 5 5" />
+                        <path d="M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3" />
+                      </svg>
+                    </span>
+                    <strong>
+                      {isDragging ? 'Drop your video here' : 'Drag and drop your video'}
+                    </strong>
+                    <span className="upload-description">
+                      or <span className="browse-link">browse files</span> on your device
+                    </span>
+                    <span className="upload-formats">
+                      MP4 · MOV · WEBM · AVI
+                    </span>
+                    <span className="upload-limit">Maximum file size: 200 MB</span>
+                  </button>
+                )}
+
+                <div className="stroke-selection">
+                  <div className="section-heading">
+                    <div>
+                      <h2>Select stroke type</h2>
+                      <p>Choose the stroke you want to review.</p>
+                    </div>
+                    <span className="muted-tag">REQUIRED</span>
+                  </div>
+
+                  <div className="stroke-choice-grid">
+                    {strokeTypes.map((stroke, index) => (
+                      <button
+                        type="button"
+                        key={stroke.name}
+                        className={`stroke-choice ${
+                          selectedStroke === stroke.name ? 'selected' : ''
+                        }`}
+                        aria-pressed={selectedStroke === stroke.name}
+                        onClick={() => {
+                          setSelectedStroke(stroke.name)
+                          setMessage('')
+                        }}
+                      >
+                        <span className={`stroke-icon stroke-${index + 1}`}>
+                          {stroke.icon}
+                        </span>
+                        <span className="stroke-choice-text">
+                          <strong>{stroke.name}</strong>
+                          <small>{stroke.description}</small>
+                        </span>
+                        <span className="selection-indicator">
+                          {selectedStroke === stroke.name ? '✓' : ''}
+                        </span>
+                      </button>
+                    ))}
                   </div>
                 </div>
-              ) : (
+
+                {message && (
+                  <div className="notice" role="status">
+                    <span>ⓘ</span>
+                    {message}
+                  </div>
+                )}
+
+                <div className="upload-guidelines">
+                  <h3>
+                    <span>✳</span> Recording tips for better results
+                  </h3>
+                  <ul>
+                    <li>Keep the player's full body visible throughout the clip.</li>
+                    <li>Use clear footage with good lighting and minimal obstruction.</li>
+                    <li>Keep the camera steady and record one stroke at a time where possible.</li>
+                  </ul>
+                </div>
+
                 <button
-                  className="upload-dropzone"
-                  onClick={() => fileInput.current?.click()}
-                  onDragOver={(event) => event.preventDefault()}
-                  onDrop={(event) => {
-                    event.preventDefault()
-                    chooseVideo(event.dataTransfer.files?.[0])
-                  }}
+                  type="button"
+                  className="primary-button analyze-button"
+                  onClick={startAnalysis}
                 >
-                  <span className="upload-icon">↑</span>
-                  <strong>Drop your video here</strong>
-                  <span>or click to browse your device</span>
-                  <span className="upload-formats">VIDEO FILES · MAX 200 MB</span>
+                  Analyse video <span>→</span>
                 </button>
-              )}
 
-              {message && (
-                <div className="notice" role="status">{message}</div>
-              )}
+                <p className="privacy-note">
+                  Guest mode · Your selected video is not saved to an account.
+                </p>
+              </section>
 
-              <div className="upload-guidelines">
-                <h3>For better analysis</h3>
-                <ul>
-                  <li>Keep the player's full body visible.</li>
-                  <li>Use clear footage with minimal obstruction.</li>
-                  <li>Record one stroke at a time where possible.</li>
-                </ul>
-              </div>
+              <aside className="upload-side-panel">
+                <div className="upload-side-icon">◎</div>
+                <p className="eyebrow">YOUR ANALYSIS</p>
+                <h2>From footage to feedback.</h2>
+                <p>
+                  Prepare your badminton video for pose tracking and stroke
+                  classification.
+                </p>
 
-              <button
-                className="primary-button analyze-button"
-                onClick={startAnalysis}
-              >
-                Analyse video <span>→</span>
-              </button>
-              <p className="privacy-note">
-                Guest results are not saved to an account.
-              </p>
-            </section>
+                <div className="upload-progress-step">
+                  <span>01</span>
+                  <div>
+                    <strong>Upload footage</strong>
+                    <small>
+                      {video ? 'Video selected' : 'Waiting for your video'}
+                    </small>
+                  </div>
+                  {video && <span className="step-complete">✓</span>}
+                </div>
+
+                <div className="upload-progress-step">
+                  <span>02</span>
+                  <div>
+                    <strong>Choose stroke</strong>
+                    <small>{selectedStroke} selected</small>
+                  </div>
+                  <span className="step-complete">✓</span>
+                </div>
+
+                <div className="upload-progress-step">
+                  <span>03</span>
+                  <div>
+                    <strong>Evaluate movement</strong>
+                    <small>Available after backend integration</small>
+                  </div>
+                </div>
+
+                <div className="guest-info">
+                  <strong>Guest session</strong>
+                  <p>You can prepare a video without creating an account.</p>
+                </div>
+              </aside>
+            </div>
           </section>
         )}
+
 
         {page === 'History' && (
           <section className="page-content inner-page">
