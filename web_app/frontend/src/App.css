@@ -1629,3 +1629,81 @@ h1 > span {
 }
 
 
+.analysis-results {
+  margin-top: 24px;
+  padding: 24px;
+}
+
+.analysis-prediction {
+  margin: 20px 0;
+  padding: 22px;
+  border-radius: 14px;
+  background: #edf5ff;
+  color: #152d4a;
+}
+
+.result-label {
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.analysis-prediction h3 {
+  margin: 8px 0;
+  font-size: 30px;
+}
+
+.analysis-prediction p {
+  margin-bottom: 0;
+}
+
+.probability-list {
+  display: grid;
+  gap: 16px;
+  margin: 24px 0;
+}
+
+.probability-heading {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.probability-track {
+  height: 9px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #e7eaf0;
+}
+
+.probability-fill {
+  height: 100%;
+  border-radius: inherit;
+  background: #477fe8;
+  transition: width 0.3s ease;
+}
+
+.result-meta {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 12px;
+  padding-top: 18px;
+  border-top: 1px solid #e7eaf0;
+}
+
+.result-meta span,
+.result-disclaimer {
+  color: #697386;
+  font-size: 13px;
+}
+
+.result-disclaimer {
+  margin-top: 18px;
+  line-height: 1.6;
+}
+
+.analyze-button:disabled {
+  opacity: 0.65;
+  cursor: wait;
+}
+

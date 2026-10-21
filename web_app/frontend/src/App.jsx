@@ -16,6 +16,8 @@ function App() {
   const [message, setMessage] = useState('')
   const [selectedStroke, setSelectedStroke] = useState('Smash')
   const [isDragging, setIsDragging] = useState(false)
+  const [isAnalysing, setIsAnalysing] = useState(false)
+  const [analysisResult, setAnalysisResult] = useState(null)
   const fileInput = useRef(null)
 
   function chooseVideo(file) {
@@ -36,6 +38,7 @@ function App() {
     setVideo(file)
     setVideoUrl(URL.createObjectURL(file))
     setMessage('')
+    setAnalysisResult(null)
     setPage('Analyse Stroke')
   }
 
@@ -44,10 +47,11 @@ function App() {
     setVideo(null)
     setVideoUrl('')
     setMessage('')
+    setAnalysisResult(null)
     if (fileInput.current) fileInput.current.value = ''
   }
 
-  function startAnalysis() {
+  async function startAnalysis() {
     if (!video) {
       setMessage('Please upload a video before starting analysis.')
       return
@@ -58,9 +62,37 @@ function App() {
       return
     }
 
-    setMessage(
-      `${selectedStroke} video is ready. AI analysis will be available once the Python backend is connected.`
-    )
+    setIsAnalysing(true)
+    setMessage('Connecting to the E05 model. If prompted, select the player in the OpenCV window.')
+    setAnalysisResult(null)
+
+    try {
+      const formData = new FormData()
+      formData.append('file', video)
+      formData.append('stroke_type', selectedStroke)
+
+      const response = await fetch('http://127.0.0.1:8000/api/analyse', {
+        method: 'POST',
+        body: formData,
+      })
+
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok) {
+        throw new Error(data.detail || `Analysis failed (HTTP ${response.status}).`)
+      }
+
+      setAnalysisResult(data)
+      setMessage(data.warning || 'Analysis completed successfully.')
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : 'Unknown error.'
+      if (detail.includes('Failed to fetch') || detail.includes('NetworkError')) {
+        setMessage('Cannot reach the backend. Check that FastAPI is running at http://127.0.0.1:8000 and try again.')
+      } else {
+        setMessage(`Analysis failed: ${detail}`)
+      }
+    } finally {
+      setIsAnalysing(false)
+    }
   }
 
   return (
@@ -402,6 +434,7 @@ function App() {
                         onClick={() => {
                           setSelectedStroke(stroke.name)
                           setMessage('')
+                          setAnalysisResult(null)
                         }}
                       >
                         <span className={`stroke-icon stroke-${index + 1}`}>
@@ -420,15 +453,57 @@ function App() {
                 </div>
 
                 {message && (
-                  <div className="notice" role="status">
+                  <div className="notice" role="status" aria-live="polite">
                     <span>ⓘ</span>
                     {message}
                   </div>
                 )}
 
+                {analysisResult && (
+                  <section className="panel analysis-results" aria-live="polite">
+                    <div className="panel-heading">
+                      <div>
+                        <p className="eyebrow">E05 MODEL RESULTS</p>
+                        <h2>Stroke analysis</h2>
+                      </div>
+                      <span className="muted-tag">COMPLETED</span>
+                    </div>
+                    <div className="analysis-prediction">
+                      <span className="result-label">Predicted stroke</span>
+                      <h3>{analysisResult.predicted_stroke}</h3>
+                      <p>{Math.round((analysisResult.confidence || 0) * 100)}% model confidence</p>
+                    </div>
+                    <div className="probability-list">
+                      {Object.entries(analysisResult.probabilities || {}).map(([name, value]) => (
+                        <div className="probability-row" key={name}>
+                          <div className="probability-heading">
+                            <span>{name}</span>
+                            <strong>{Math.round(value * 100)}%</strong>
+                          </div>
+                          <div className="probability-track">
+                            <div className="probability-fill" style={{ width: `${Math.max(0, Math.min(1, value)) * 100}%` }} />
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="result-meta">
+                      <span>Pose detection</span>
+                      <strong>{Math.round((analysisResult.video_info?.pose_detection_rate || 0) * 100)}%</strong>
+                      <span>Frames processed</span>
+                      <strong>{analysisResult.video_info?.frame_count ?? '—'}</strong>
+                      <span>Tracker failures</span>
+                      <strong>{analysisResult.video_info?.tracker_failures ?? '—'}</strong>
+                    </div>
+                    {analysisResult.matches_selected_type === false && (
+                      <p className="result-disclaimer">The predicted stroke differs from your selected stroke type. Check the clip and player tracking.</p>
+                    )}
+                    <p className="result-disclaimer">Confidence is the model's predicted probability, not a guarantee of real-world accuracy.</p>
+                  </section>
+                )}
+
                 <div className="upload-guidelines">
                   <h3>
-                    <span>✳</span> Recording tips for better results
+                    <span></span> Recording tips for better results
                   </h3>
                   <ul>
                     <li>Keep the player's full body visible throughout the clip.</li>
@@ -441,8 +516,9 @@ function App() {
                   type="button"
                   className="primary-button analyze-button"
                   onClick={startAnalysis}
+                  disabled={isAnalysing}
                 >
-                  Analyse video <span>→</span>
+                  {isAnalysing ? 'Analysing video…' : 'Analyse video'} <span>{isAnalysing ? '⏳' : '→'}</span>
                 </button>
 
                 <p className="privacy-note">
@@ -483,7 +559,7 @@ function App() {
                   <span>03</span>
                   <div>
                     <strong>Evaluate movement</strong>
-                    <small>Available after backend integration</small>
+                    <small>{isAnalysing ? 'Analysis in progress' : analysisResult ? 'Analysis completed' : 'Ready when you start analysis'}</small>
                   </div>
                 </div>
 
