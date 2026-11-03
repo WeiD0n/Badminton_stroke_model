@@ -3,6 +3,8 @@ import os
 import random
 import json
 import csv
+import re
+from datetime import datetime
 from pathlib import Path
 
 import matplotlib.pyplot as plt
@@ -49,26 +51,19 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 SEQUENCES_DIR = PROJECT_ROOT / "dataset" / "sequences"
 MODELS_DIR = PROJECT_ROOT / "models"
 
-EVALUATION_DIR = (
+EVALUATION_BASE_DIR = (
     PROJECT_ROOT / "evaluation" / "700_per_class_pose_biomechanical"
 )
 
-MODEL_PATH = (
-    MODELS_DIR /
-    "lstm_stroke_classifier_700_pose_biomechanical.keras"
-)
+# These paths are assigned to a unique run directory at startup.
+EVALUATION_DIR = None
+RUN_ID = None
+RUN_TIMESTAMP = None
 
-BEST_MODEL_PATH = (
-    MODELS_DIR /
-    "lstm_stroke_classifier_700_pose_biomechanical_best.keras"
-)
-
-NORMALISATION_PATH = (
-    MODELS_DIR /
-    "normalisation_stats_700_per_class_pose_biomechanical.npz"
-)
-
-CONFIG_PATH = EVALUATION_DIR / "training_config.json"
+MODEL_PATH = None
+BEST_MODEL_PATH = None
+NORMALISATION_PATH = None
+CONFIG_PATH = None
 
 EPSILON = 1e-7
 
@@ -93,6 +88,37 @@ def set_seeds():
     np.random.seed(SEED)
 
     tf.random.set_seed(SEED)
+
+
+# ============================================================
+# AUTOMATIC EXPERIMENT RUN VERSIONING
+# ============================================================
+
+def create_run_directory():
+    """
+    Create a unique run_001, run_002, ... directory.
+    Existing runs are never overwritten.
+    """
+
+    EVALUATION_BASE_DIR.mkdir(parents=True, exist_ok=True)
+
+    existing_numbers = []
+
+    for path in EVALUATION_BASE_DIR.glob("run_*"):
+        if path.is_dir():
+            match = re.fullmatch(r"run_(\\d+)", path.name)
+            if match:
+                existing_numbers.append(int(match.group(1)))
+
+    next_number = max(existing_numbers, default=0) + 1
+    run_id = f"run_{next_number:03d}"
+
+    run_dir = EVALUATION_BASE_DIR / run_id
+    run_dir.mkdir(parents=False, exist_ok=False)
+
+    timestamp = datetime.now().astimezone().isoformat(timespec="seconds")
+
+    return run_id, timestamp, run_dir
 
 
 # ============================================================
@@ -516,6 +542,11 @@ def save_training_plot(
 
 def main():
 
+    global EVALUATION_DIR
+    global RUN_ID, RUN_TIMESTAMP
+    global MODEL_PATH, BEST_MODEL_PATH
+    global NORMALISATION_PATH, CONFIG_PATH
+
     set_seeds()
 
     MODELS_DIR.mkdir(
@@ -523,10 +554,16 @@ def main():
         exist_ok=True
     )
 
-    EVALUATION_DIR.mkdir(
-        parents=True,
-        exist_ok=True
-    )
+    RUN_ID, RUN_TIMESTAMP, EVALUATION_DIR = create_run_directory()
+
+    MODEL_PATH = EVALUATION_DIR / "final_model.keras"
+    BEST_MODEL_PATH = EVALUATION_DIR / "best_model.keras"
+    NORMALISATION_PATH = EVALUATION_DIR / "normalisation_stats.npz"
+    CONFIG_PATH = EVALUATION_DIR / "training_config.json"
+
+    print(f"\\nCreated experiment run: {RUN_ID}")
+    print(f"Run timestamp: {RUN_TIMESTAMP}")
+    print(f"Run output directory: {EVALUATION_DIR}")
 
     X, y, source_files = load_dataset()
 
@@ -675,6 +712,9 @@ def main():
 
     config = {
         "experiment": "700_per_class_pose_biomechanical",
+        "run_id": RUN_ID,
+        "run_timestamp": RUN_TIMESTAMP,
+        "run_output_directory": str(EVALUATION_DIR.relative_to(PROJECT_ROOT)),
         "samples_per_class": MAX_SAMPLES_PER_CLASS,
         "total_samples": int(len(X)),
         "dataset_directory": str(SEQUENCES_DIR.relative_to(PROJECT_ROOT)),
@@ -780,6 +820,29 @@ def main():
         shuffle=True
     )
 
+    # --------------------------------------------------------
+    # SAVE PER-EPOCH TRAINING HISTORY
+    # --------------------------------------------------------
+
+    history_path = EVALUATION_DIR / "training_history.csv"
+
+    history_keys = list(history.history.keys())
+
+    with history_path.open("w", encoding="utf-8", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow(["epoch"] + history_keys)
+
+        for epoch_index in range(len(history.history["loss"])):
+            writer.writerow(
+                [epoch_index + 1]
+                + [
+                    history.history[key][epoch_index]
+                    for key in history_keys
+                ]
+            )
+
+    print(f"Saved training history: {history_path}")
+
     # Save final model with restored best weights
     model.save(MODEL_PATH)
 
@@ -882,7 +945,8 @@ def main():
         EVALUATION_DIR / "training_loss.png",
         EVALUATION_DIR / "test_classification_report.txt",
         EVALUATION_DIR / "test_metrics.json",
-        EVALUATION_DIR / "test_confusion_matrix.csv"
+        EVALUATION_DIR / "test_confusion_matrix.csv",
+        EVALUATION_DIR / "training_history.csv"
     ]:
 
         print(output)
