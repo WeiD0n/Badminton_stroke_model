@@ -1,5 +1,5 @@
 
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import './App.css'
 import badmintonHero from './assets/Neon Badminton Pose Tracking Dashboard.png';
 
@@ -18,7 +18,135 @@ function App() {
   const [isDragging, setIsDragging] = useState(false)
   const [isAnalysing, setIsAnalysing] = useState(false)
   const [analysisResult, setAnalysisResult] = useState(null)
+  const [selectedRoi, setSelectedRoi] = useState(null)
+  const [isDrawingRoi, setIsDrawingRoi] = useState(false)
+  const roiStartRef = useRef(null)
+  const roiStageRef = useRef(null)
+  const [saveAnalysis, setSaveAnalysis] = useState(false)
+  const [saveVideo, setSaveVideo] = useState(false)
+  const [historyItems, setHistoryItems] = useState([])
+  const [isHistoryLoading, setIsHistoryLoading] = useState(false)
+  const [historyError, setHistoryError] = useState('')
+  const [selectedHistory, setSelectedHistory] = useState(null)
+  const [historyVideo, setHistoryVideo] = useState(null)
+  const [isHistoryVideoLoading, setIsHistoryVideoLoading] = useState(false)
+  const [historyVideoError, setHistoryVideoError] = useState('')
+  const [dashboardLoading, setDashboardLoading] = useState(false)
+  const [dashboardError, setDashboardError] = useState('')
   const fileInput = useRef(null)
+
+  const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
+
+  const [user, setUser] = useState(null)
+  const [isSessionLoading, setIsSessionLoading] = useState(true)
+
+  const [authMode, setAuthMode] = useState('login')
+  const [authEmail, setAuthEmail] = useState('')
+  const [authUsername, setAuthUsername] = useState('')
+  const [authPassword, setAuthPassword] = useState('')
+  const [authMessage, setAuthMessage] = useState('')
+  const [isAuthLoading, setIsAuthLoading] = useState(false)
+
+  const validFormAnalyses = historyItems
+    .filter((item) => item.form_score !== null && item.form_score !== undefined && Number.isFinite(Number(item.form_score)))
+    .slice()
+    .sort((a, b) => new Date(a.created_at || 0) - new Date(b.created_at || 0))
+  const formScores = validFormAnalyses.map((item) => Number(item.form_score))
+  const averageFormScore = formScores.length
+    ? formScores.reduce((total, score) => total + score, 0) / formScores.length
+    : null
+  const bestFormScore = formScores.length ? Math.max(...formScores) : null
+  const averageScore = (field) => {
+    const values = historyItems
+      .filter((item) => item[field] !== null && item[field] !== undefined && item[field] !== '')
+      .map((item) => Number(item[field]))
+      .filter((value) => Number.isFinite(value))
+    return values.length ? values.reduce((total, value) => total + value, 0) / values.length : null
+  }
+  const strokeProgress = ['Smash', 'Drop Shot', 'Clear'].map((stroke) => {
+    const scores = historyItems
+      .filter((item) => (item.stroke_type || '').toLowerCase() === stroke.toLowerCase())
+      .filter((item) => item.form_score !== null && item.form_score !== undefined && item.form_score !== '')
+      .map((item) => Number(item.form_score))
+      .filter((score) => Number.isFinite(score))
+    return {
+      name: stroke,
+      count: historyItems.filter((item) => (item.stroke_type || '').toLowerCase() === stroke.toLowerCase()).length,
+      average: scores.length ? scores.reduce((total, score) => total + score, 0) / scores.length : null,
+    }
+  })
+  const chartPoints = validFormAnalyses.map((item, index) => {
+    const x = validFormAnalyses.length === 1 ? 300 : 36 + (index * 528) / (validFormAnalyses.length - 1)
+    const y = 174 - (Math.max(0, Math.min(100, Number(item.form_score))) / 100) * 140
+    return { x, y, score: Number(item.form_score), date: item.created_at }
+  })
+
+  // Restore the authenticated session from the HTTP-only cookie on page load.
+  useEffect(() => {
+    let isMounted = true
+
+    async function restoreSession() {
+      try {
+        const response = await fetch(`${API_URL}/api/auth/me`, {
+          credentials: 'include',
+        })
+        if (!response.ok) {
+          if (response.status !== 401) {
+            throw new Error(`Session check failed (HTTP ${response.status}).`)
+          }
+          return
+        }
+        const profile = await response.json()
+        if (isMounted) setUser(profile)
+      } catch (error) {
+        console.error('Could not restore login session:', error)
+      } finally {
+        if (isMounted) setIsSessionLoading(false)
+      }
+    }
+
+    restoreSession()
+    return () => { isMounted = false }
+  }, [])
+
+  // Load this account's saved evaluations for the progress dashboard.
+  // The existing history endpoint enforces ownership on the backend.
+  useEffect(() => {
+    let isMounted = true
+
+    async function loadDashboardProgress() {
+      if (!user) {
+        setHistoryItems([])
+        setDashboardError('')
+        setDashboardLoading(false)
+        return
+      }
+
+      setDashboardLoading(true)
+      setDashboardError('')
+      try {
+        const response = await fetch(`${API_URL}/api/analyses?limit=100`, {
+          credentials: 'include',
+        })
+        const data = await response.json().catch(() => ({}))
+        if (!response.ok) {
+          throw new Error(data.detail || `Could not load progress (HTTP ${response.status}).`)
+        }
+        if (isMounted) {
+          setHistoryItems(Array.isArray(data.items) ? data.items : [])
+        }
+      } catch (error) {
+        if (isMounted) {
+          setDashboardError(error.message || 'Could not load your progress data.')
+        }
+      } finally {
+        if (isMounted) setDashboardLoading(false)
+      }
+    }
+
+    loadDashboardProgress()
+    return () => { isMounted = false }
+  }, [user, API_URL])
 
   function chooseVideo(file) {
     if (!file) return
@@ -39,6 +167,7 @@ function App() {
     setVideoUrl(URL.createObjectURL(file))
     setMessage('')
     setAnalysisResult(null)
+    setSelectedRoi(null)
     setPage('Analyse Stroke')
   }
 
@@ -48,7 +177,247 @@ function App() {
     setVideoUrl('')
     setMessage('')
     setAnalysisResult(null)
+    setSelectedRoi(null)
+    setIsDrawingRoi(false)
     if (fileInput.current) fileInput.current.value = ''
+  }
+  
+  async function handleAuthSubmit(event) {
+    event.preventDefault()
+    setAuthMessage('')
+    setIsAuthLoading(true)
+
+    try {
+      if (authMode === 'register') {
+        const registerResponse = await fetch(
+          `${API_URL}/api/auth/register`,
+          {
+            method: 'POST',
+            credentials: 'include',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              email: authEmail,
+              username: authUsername,
+              password: authPassword,
+            }),
+          }
+        )
+
+        const registerData = await registerResponse.json()
+
+        if (!registerResponse.ok) {
+          throw new Error(
+            registerData.detail || 'Registration failed.'
+          )
+        }
+      }
+
+      // Log in after registration, or directly for existing users.
+      const loginResponse = await fetch(
+        `${API_URL}/api/auth/login`,
+        {
+          method: 'POST',
+          credentials: 'include',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            email: authEmail,
+            password: authPassword,
+          }),
+        }
+      )
+
+      const loginData = await loginResponse.json()
+
+      if (!loginResponse.ok) {
+        throw new Error(loginData.detail || 'Login failed.')
+      }
+
+      // Retrieve the authenticated user's profile.
+      const profileResponse = await fetch(
+        `${API_URL}/api/auth/me`,
+        {
+          credentials: 'include',
+        }
+      )
+
+      const profileData = await profileResponse.json()
+
+      if (!profileResponse.ok) {
+        throw new Error(
+          profileData.detail || 'Could not retrieve your account.'
+        )
+      }
+
+      setUser(profileData)
+
+      setAuthPassword('')
+      setAuthMessage(
+        authMode === 'register'
+          ? 'Account created successfully!'
+          : 'Welcome back!'
+      )
+
+    } catch (error) {
+      setAuthMessage(error.message || 'Something went wrong.')
+    } finally {
+      setIsAuthLoading(false)
+    }
+  }
+
+  async function handleLogout() {
+    try {
+      await fetch(`${API_URL}/api/auth/logout`, {
+        method: 'POST',
+        credentials: 'include',
+      })
+    } catch (error) {
+      console.error('Logout request failed:', error)
+    }
+    setUser(null)
+    setAuthEmail('')
+    setAuthUsername('')
+    setAuthPassword('')
+    setAuthMessage('')
+    setSaveAnalysis(false)
+    setSaveVideo(false)
+    setHistoryItems([])
+    setSelectedHistory(null)
+    setHistoryVideo(null)
+    setHistoryVideoError('')
+    setPage('Dashboard')
+  }
+
+
+  async function loadHistory() {
+    if (!user) {
+      setHistoryItems([])
+      setHistoryError('Please log in to view your saved analyses.')
+      setPage('History')
+      return
+    }
+
+    setPage('History')
+    setIsHistoryLoading(true)
+    setHistoryError('')
+    setSelectedHistory(null)
+
+    try {
+      const response = await fetch(`${API_URL}/api/analyses`, {
+        credentials: 'include',
+      })
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok) {
+        throw new Error(data.detail || `Could not load history (HTTP ${response.status}).`)
+      }
+      setHistoryItems(Array.isArray(data.items) ? data.items : [])
+    } catch (error) {
+      setHistoryError(error.message || 'Could not load analysis history.')
+    } finally {
+      setIsHistoryLoading(false)
+    }
+  }
+
+  async function openHistoryItem(item) {
+    if (!user) return
+    setHistoryError('')
+    try {
+      const response = await fetch(`${API_URL}/api/analyses/${item.id}`, {
+        credentials: 'include',
+      })
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok) {
+        throw new Error(data.detail || 'Could not load this analysis.')
+      }
+      setSelectedHistory(data)
+    } catch (error) {
+      setHistoryError(error.message || 'Could not load this analysis.')
+    }
+  }
+
+  async function openHistoryVideo(item) {
+    if (!user || !item.video_saved) return
+
+    setIsHistoryVideoLoading(true)
+    setHistoryVideoError('')
+    setHistoryVideo(null)
+
+    try {
+      const response = await fetch(
+        `${API_URL}/api/analyses/${item.id}/video`,
+        { credentials: 'include' }
+      )
+      const data = await response.json().catch(() => ({}))
+
+      if (!response.ok) {
+        throw new Error(data.detail || 'Could not retrieve this video.')
+      }
+
+      setHistoryVideo({
+        url: data.video_url,
+        filename: data.filename || item.video_filename || 'Badminton analysis video',
+        analysisId: item.id,
+      })
+    } catch (error) {
+      setHistoryVideoError(error.message || 'Could not retrieve this video.')
+    } finally {
+      setIsHistoryVideoLoading(false)
+    }
+  }
+
+  // ROI coordinates are stored as normalised values (0 to 1), independent
+  // of the displayed video size. The backend converts them to source pixels.
+  function getRoiPoint(event) {
+    const bounds = roiStageRef.current?.getBoundingClientRect()
+    if (!bounds || !bounds.width || !bounds.height) return null
+
+    return {
+      x: Math.min(1, Math.max(0, (event.clientX - bounds.left) / bounds.width)),
+      y: Math.min(1, Math.max(0, (event.clientY - bounds.top) / bounds.height)),
+    }
+  }
+
+  function handleRoiPointerDown(event) {
+    if (!video || isAnalysing) return
+    const point = getRoiPoint(event)
+    if (!point) return
+
+    event.preventDefault()
+    event.currentTarget.setPointerCapture?.(event.pointerId)
+    roiStartRef.current = point
+    setSelectedRoi({ x: point.x, y: point.y, width: 0, height: 0 })
+    setIsDrawingRoi(true)
+    setMessage('Drag around the player’s full visible body, then release to set the selection.')
+    setAnalysisResult(null)
+  }
+
+  function handleRoiPointerMove(event) {
+    if (!isDrawingRoi || !roiStartRef.current) return
+    const point = getRoiPoint(event)
+    if (!point) return
+
+    const start = roiStartRef.current
+    setSelectedRoi({
+      x: Math.min(start.x, point.x),
+      y: Math.min(start.y, point.y),
+      width: Math.abs(point.x - start.x),
+      height: Math.abs(point.y - start.y),
+    })
+  }
+
+  function handleRoiPointerUp(event) {
+    if (!isDrawingRoi || !roiStartRef.current) return
+    handleRoiPointerMove(event)
+    setIsDrawingRoi(false)
+    roiStartRef.current = null
+  }
+
+  function clearRoi() {
+    setSelectedRoi(null)
+    setMessage('Draw a selection box around the player before starting analysis.')
   }
 
   async function startAnalysis() {
@@ -62,17 +431,29 @@ function App() {
       return
     }
 
+    if (!selectedRoi || selectedRoi.width < 0.01 || selectedRoi.height < 0.01) {
+      setMessage('Please draw a selection box around the player in the first video frame.')
+      return
+    }
+
     setIsAnalysing(true)
-    setMessage('Connecting to the LSTM autoencoder. If prompted, select the player in the OpenCV window.')
+    setMessage('Processing the selected player with CSRT tracking, MediaPipe and the LSTM autoencoder…')
     setAnalysisResult(null)
 
     try {
       const formData = new FormData()
       formData.append('file', video)
       formData.append('stroke_type', selectedStroke)
+      formData.append('save_analysis', String(Boolean(user && saveAnalysis)))
+      formData.append('save_video', String(Boolean(user && saveAnalysis && saveVideo)))
+      formData.append('roi_x', String(selectedRoi.x))
+      formData.append('roi_y', String(selectedRoi.y))
+      formData.append('roi_width', String(selectedRoi.width))
+      formData.append('roi_height', String(selectedRoi.height))
 
-      const response = await fetch('http://127.0.0.1:8000/api/analyse', {
+      const response = await fetch(`${API_URL}/api/analyse`, {
         method: 'POST',
+        credentials: 'include',
         body: formData,
       })
 
@@ -82,11 +463,17 @@ function App() {
       }
 
       setAnalysisResult(data)
-      setMessage(data.warning || 'Analysis completed successfully.')
+      if (data.saved) {
+        setMessage(data.video_saved
+          ? 'Analysis saved successfully. Your uploaded video is also stored.'
+          : 'Analysis saved successfully.')
+      } else {
+        setMessage(data.warning || 'Analysis completed successfully. This result was not saved.')
+      }
     } catch (error) {
       const detail = error instanceof Error ? error.message : 'Unknown error.'
       if (detail.includes('Failed to fetch') || detail.includes('NetworkError')) {
-        setMessage('Cannot reach the backend. Check that FastAPI is running at http://127.0.0.1:8000 and try again.')
+        setMessage('Cannot reach the backend. Check that FastAPI is running at http://localhost:8000 and try again.')
       } else {
         setMessage(`Analysis failed: ${detail}`)
       }
@@ -123,7 +510,7 @@ function App() {
           </button>
           <button
             className={`nav-item ${page === 'History' ? 'active' : ''}`}
-            onClick={() => setPage('History')}
+            onClick={loadHistory}
           >
             <span>◷</span> Analysis History
           </button>
@@ -152,14 +539,15 @@ function App() {
           </div>
           <div className="topbar-right">
             <span className="guest-pill">
-              <span className="status-dot" /> Guest session
+              <span className="status-dot" />
+              {user ? user.username : 'Guest session'}
             </span>
             <button
               className="avatar"
               title="Account"
               onClick={() => setPage('Account')}
             >
-              G
+              {user ? user.username.charAt(0).toUpperCase() : 'G'}
             </button>
           </div>
         </header>
@@ -214,6 +602,115 @@ function App() {
               </div>
             </section>
 
+            {user && (
+              <section className="progress-dashboard">
+                <div className="section-heading progress-heading">
+                  <div>
+                    <p className="eyebrow">YOUR TRAINING DATA</p>
+                    <h2>Player progress</h2>
+                    <p>Track your saved evaluations and form scores over time.</p>
+                  </div>
+                  <button
+                    className="secondary-button"
+                    onClick={async () => {
+                      setDashboardLoading(true)
+                      setDashboardError('')
+                      try {
+                        const response = await fetch(`${API_URL}/api/analyses?limit=100`, { credentials: 'include' })
+                        const data = await response.json().catch(() => ({}))
+                        if (!response.ok) throw new Error(data.detail || `Could not refresh progress (HTTP ${response.status}).`)
+                        setHistoryItems(Array.isArray(data.items) ? data.items : [])
+                      } catch (error) {
+                        setDashboardError(error.message || 'Could not refresh progress.')
+                      } finally {
+                        setDashboardLoading(false)
+                      }
+                    }}
+                    disabled={dashboardLoading}
+                  >
+                    {dashboardLoading ? 'Refreshing…' : 'Refresh progress'}
+                  </button>
+                </div>
+
+                {dashboardError && <div className="notice">{dashboardError}</div>}
+                {dashboardLoading && historyItems.length === 0 ? (
+                  <section className="panel progress-empty">Loading your saved evaluations…</section>
+                ) : historyItems.length === 0 ? (
+                  <section className="panel progress-empty">
+                    <h3>Your progress starts here.</h3>
+                    <p>Save your first stroke evaluation to see your performance trends and stroke breakdown.</p>
+                    <button className="secondary-button" onClick={() => setPage('Analyse Stroke')}>Analyse your first stroke →</button>
+                  </section>
+                ) : (
+                  <>
+                    <div className="progress-stat-grid">
+                      <article className="panel progress-stat-card">
+                        <span className="progress-stat-label">SAVED ANALYSES</span>
+                        <strong>{historyItems.length}</strong>
+                        <small>Evaluations in your history</small>
+                      </article>
+                      <article className="panel progress-stat-card">
+                        <span className="progress-stat-label">AVERAGE FORM SCORE</span>
+                        <strong>{averageFormScore === null ? '—' : averageFormScore.toFixed(1)}</strong>
+                        <small>Across {validFormAnalyses.length} scored evaluations</small>
+                      </article>
+                      <article className="panel progress-stat-card">
+                        <span className="progress-stat-label">BEST FORM SCORE</span>
+                        <strong>{bestFormScore === null ? '—' : bestFormScore.toFixed(1)}</strong>
+                        <small>Your highest saved score</small>
+                      </article>
+                      <article className="panel progress-stat-card">
+                        <span className="progress-stat-label">AVERAGE BIOMECHANICAL</span>
+                        <strong>{averageScore('biomechanical_score') === null ? '—' : averageScore('biomechanical_score').toFixed(1)}</strong>
+                        <small>Movement quality score</small>
+                      </article>
+                    </div>
+
+                    <div className="progress-chart-grid">
+                      <section className="panel progress-chart-panel">
+                        <div className="panel-heading">
+                          <div><h3>Form score over time</h3><p>Each point represents one saved evaluation.</p></div>
+                          <span className="muted-tag">0–100</span>
+                        </div>
+                        {chartPoints.length > 0 ? (
+                          <div className="progress-chart-wrap">
+                            <svg className="progress-chart" viewBox="0 0 600 220" role="img" aria-label="Form score trend chart">
+                              {[0, 25, 50, 75, 100].map((tick) => {
+                                const y = 174 - (tick / 100) * 140
+                                return <g key={tick}><line x1="36" x2="564" y1={y} y2={y} className="chart-grid-line" /><text x="25" y={y + 4} textAnchor="end" className="chart-axis-label">{tick}</text></g>
+                              })}
+                              {chartPoints.length > 1 && <polyline points={chartPoints.map((point) => `${point.x},${point.y}`).join(' ')} className="chart-trend-line" />}
+                              {chartPoints.map((point, index) => <g key={`${point.date || 'score'}-${index}`}><circle cx={point.x} cy={point.y} r="5" className="chart-point"><title>{point.score.toFixed(1)} · {point.date ? new Date(point.date).toLocaleDateString() : 'Date unavailable'}</title></circle></g>)}
+                            </svg>
+                            <div className="chart-date-range"><span>{validFormAnalyses[0]?.created_at ? new Date(validFormAnalyses[0].created_at).toLocaleDateString() : 'Oldest'}</span><span>{validFormAnalyses[validFormAnalyses.length - 1]?.created_at ? new Date(validFormAnalyses[validFormAnalyses.length - 1].created_at).toLocaleDateString() : 'Latest'}</span></div>
+                          </div>
+                        ) : <p className="progress-no-data">No form scores are available yet.</p>}
+                      </section>
+
+                      <section className="panel progress-chart-panel">
+                        <div className="panel-heading">
+                          <div><h3>Performance by stroke</h3><p>Average form score for each category.</p></div>
+                        </div>
+                        <div className="stroke-progress-list">
+                          {strokeProgress.map((stroke) => (
+                            <div className="stroke-progress-row" key={stroke.name}>
+                              <div className="stroke-progress-top"><strong>{stroke.name}</strong><span>{stroke.average === null ? '—' : stroke.average.toFixed(1)} <small>({stroke.count})</small></span></div>
+                              <div className="stroke-progress-track"><span style={{ width: `${stroke.average === null ? 0 : Math.max(0, Math.min(100, stroke.average))}%` }} /></div>
+                            </div>
+                          ))}
+                        </div>
+                        <div className="progress-secondary-metrics">
+                          <span>Average temporal score</span>
+                          <strong>{averageScore('temporal_similarity_score') === null ? '—' : averageScore('temporal_similarity_score').toFixed(1)}</strong>
+                        </div>
+                      </section>
+                    </div>
+                    <div className="progress-footer"><span>Based on your latest {historyItems.length} saved evaluations (up to 100).</span><button className="text-button" onClick={loadHistory}>View full analysis history →</button></div>
+                  </>
+                )}
+              </section>
+            )}
+
             <div className="section-heading">
               <div>
                 <h2>What you can analyse</h2>
@@ -254,7 +751,7 @@ function App() {
                 <div className="workflow">
                   {[
                     ['01', 'Upload video', 'Select recorded footage'],
-                    ['02', 'Extract pose', 'Track skeletal landmarks'],
+                    ['02', 'Select player', 'Draw a box around the player'],
                     ['03', 'Evaluate form', 'Review biomechanical feedback'],
                   ].map(([number, title, description]) => (
                     <div className="workflow-step" key={number}>
@@ -299,7 +796,7 @@ function App() {
               <p className="eyebrow">VIDEO-BASED PERFORMANCE REVIEW</p>
               <h1>Analyse your stroke<span>.</span></h1>
               <p className="subheading">
-                Upload your footage, select your stroke, and prepare for analysis.
+                Upload your footage, select the player, and prepare for analysis.
               </p>
             </div>
 
@@ -326,12 +823,64 @@ function App() {
 
                 {video ? (
                   <div className="selected-video">
-                    <video
-                      className="video-preview"
-                      src={videoUrl}
-                      controls
-                      playsInline
-                    />
+                    <div
+                      ref={roiStageRef}
+                      className="roi-selection-stage"
+                      onPointerDown={handleRoiPointerDown}
+                      onPointerMove={handleRoiPointerMove}
+                      onPointerUp={handleRoiPointerUp}
+                      onPointerCancel={handleRoiPointerUp}
+                      role="group"
+                      aria-label="Draw a selection box around the player in the first video frame"
+                    >
+                      <video
+                        className="video-preview roi-video-preview"
+                        src={videoUrl}
+                        muted
+                        playsInline
+                        preload="metadata"
+                        onLoadedMetadata={(event) => {
+                          event.currentTarget.pause()
+                          if (event.currentTarget.currentTime !== 0) {
+                            event.currentTarget.currentTime = 0
+                          }
+                        }}
+                        onLoadedData={(event) => event.currentTarget.pause()}
+                      />
+                      <div className="roi-selection-overlay">
+                        {selectedRoi && (
+                          <div
+                            className={`roi-selection-box ${isDrawingRoi ? 'drawing' : 'confirmed'}`}
+                            style={{
+                              left: `${selectedRoi.x * 100}%`,
+                              top: `${selectedRoi.y * 100}%`,
+                              width: `${selectedRoi.width * 100}%`,
+                              height: `${selectedRoi.height * 100}%`,
+                            }}
+                          >
+                            <span>{isDrawingRoi ? 'Selecting player…' : 'Selected player'}</span>
+                          </div>
+                        )}
+                      </div>
+                      <div className="roi-instruction">
+                        {selectedRoi && !isDrawingRoi
+                          ? 'Selection set · Draw again to adjust'
+                          : 'Click and drag to select the player'}
+                      </div>
+                    </div>
+                    <div className="roi-selection-controls">
+                      <div className="roi-selection-copy">
+                        <strong>
+                          {selectedRoi && !isDrawingRoi && selectedRoi.width >= 0.01 && selectedRoi.height >= 0.01
+                            ? 'Player selection ready'
+                            : 'Select the player'}
+                        </strong>
+
+                        <p>
+                          Draw a box around the player's full visible body in the first frame.
+                        </p>
+                      </div>
+                    </div>
 
                     <div className="selected-video-info">
                       <div className="file-details">
@@ -451,6 +1000,50 @@ function App() {
                     ))}
                   </div>
                 </div>
+
+                <section className="save-options">
+                  <div className="panel-heading">
+                    <div>
+                      <h2>Save your analysis</h2>
+                      <p>{user ? 'Choose what you want to keep in your account.' : 'Log in to save results and review them later.'}</p>
+                    </div>
+                    <span className="muted-tag">{user ? 'ACCOUNT' : 'GUEST'}</span>
+                  </div>
+                  {user ? (
+                    <>
+                      <label className="save-option">
+                        <input
+                          type="checkbox"
+                          checked={saveAnalysis}
+                          onChange={(event) => {
+                            setSaveAnalysis(event.target.checked)
+                            if (!event.target.checked) setSaveVideo(false)
+                          }}
+                        />
+                        <span>
+                          <strong>Save analysis results</strong>
+                          <small>Store your scores, feedback and evaluation metrics in Analysis History.</small>
+                        </span>
+                      </label>
+                      <label className={`save-option ${!saveAnalysis ? 'disabled' : ''}`}>
+                        <input
+                          type="checkbox"
+                          checked={saveVideo}
+                          disabled={!saveAnalysis}
+                          onChange={(event) => setSaveVideo(event.target.checked)}
+                        />
+                        <span>
+                          <strong>Keep uploaded video</strong>
+                          <small>Store a copy of the original video in secure cloud storage for a limited retention period.</small>
+                        </span>
+                      </label>
+                    </>
+                  ) : (
+                    <button type="button" className="text-button" onClick={() => setPage('Account')}>
+                      Log in or create an account →
+                    </button>
+                  )}
+                </section>
 
                 {message && (
                   <div className="notice" role="status" aria-live="polite">
@@ -603,13 +1196,17 @@ function App() {
                   type="button"
                   className="primary-button analyze-button"
                   onClick={startAnalysis}
-                  disabled={isAnalysing}
+                  disabled={isAnalysing || !video || !selectedRoi || selectedRoi.width < 0.01 || selectedRoi.height < 0.01 || isDrawingRoi}
                 >
                   {isAnalysing ? 'Analysing video…' : 'Analyse video'} <span>{isAnalysing ? '⏳' : '→'}</span>
                 </button>
 
                 <p className="privacy-note">
-                  Guest mode · Your selected video is not saved to an account.
+                  {user
+                    ? (saveAnalysis
+                      ? (saveVideo ? 'Your results and uploaded video will be saved to your account.' : 'Your results will be saved; the uploaded video will not be retained.')
+                      : 'Your analysis will be temporary and will not be saved.')
+                    : 'Guest mode · Your analysis and uploaded video are temporary and are not saved to an account.'}
                 </p>
               </section>
 
@@ -618,8 +1215,8 @@ function App() {
                 <p className="eyebrow">YOUR ANALYSIS</p>
                 <h2>From footage to feedback.</h2>
                 <p>
-                  Prepare your badminton video for pose tracking and stroke
-                  classification.
+                  Select the player in your first video frame before pose tracking and stroke
+                  form evaluation.
                 </p>
 
                 <div className="upload-progress-step">
@@ -645,6 +1242,15 @@ function App() {
                 <div className="upload-progress-step">
                   <span>03</span>
                   <div>
+                    <strong>Select player</strong>
+                    <small>{selectedRoi && !isDrawingRoi ? 'Player selection ready' : 'Draw a box on the first frame'}</small>
+                  </div>
+                  {selectedRoi && !isDrawingRoi && <span className="step-complete">✓</span>}
+                </div>
+
+                <div className="upload-progress-step">
+                  <span>04</span>
+                  <div>
                     <strong>Evaluate movement</strong>
                     <small>{isAnalysing ? 'Analysis in progress' : analysisResult ? 'Analysis completed' : 'Ready when you start analysis'}</small>
                   </div>
@@ -661,50 +1267,277 @@ function App() {
 
 
         {page === 'History' && (
-          <section className="page-content inner-page">
+          <section className="page-content inner-page history-page">
             <p className="eyebrow">YOUR ACTIVITY</p>
             <h1>Analysis history<span>.</span></h1>
-            <section className="empty-state panel">
-              <span className="empty-icon">◷</span>
-              <h2>No saved analyses yet</h2>
-              <p>
-                Guest analyses are temporary. Create an account to save
-                future results and review them here.
-              </p>
-              <button className="primary-button" onClick={() => setPage('Analyse Stroke')}>
-                Analyse a stroke →
-              </button>
-            </section>
+            <p className="subheading">Review the stroke evaluations you chose to save.</p>
+
+            {!user ? (
+              <section className="empty-state panel">
+                <span className="empty-icon">♙</span>
+                <h2>Log in to view your history</h2>
+                <p>Saved analyses are linked to your account. Log in to access them.</p>
+                <button className="primary-button" onClick={() => setPage('Account')}>Go to account →</button>
+              </section>
+            ) : isHistoryLoading ? (
+              <section className="empty-state panel"><h2>Loading your analyses…</h2></section>
+            ) : historyError ? (
+              <section className="panel">
+                <div className="notice">{historyError}</div>
+                <button className="secondary-button" onClick={loadHistory}>Try again</button>
+              </section>
+            ) : historyItems.length === 0 ? (
+              <section className="empty-state panel">
+                <span className="empty-icon">◷</span>
+                <h2>No saved analyses yet</h2>
+                <p>When you choose “Save analysis results” after an evaluation, it will appear here.</p>
+                <button className="primary-button" onClick={() => setPage('Analyse Stroke')}>Analyse a stroke →</button>
+              </section>
+            ) : (
+              <>
+                <div className="history-toolbar">
+                  <span>{historyItems.length} saved {historyItems.length === 1 ? 'analysis' : 'analyses'}</span>
+                  <button className="secondary-button" onClick={loadHistory}>Refresh</button>
+                </div>
+                <div className="history-list">
+                  {historyItems.map((item) => (
+                    <article className="history-card panel" key={item.id}>
+                      <div className="history-card-main">
+                        <div>
+                          <span className="history-date">{item.created_at ? new Date(item.created_at).toLocaleString() : 'Date unavailable'}</span>
+                          <h2>{item.stroke_type || 'Stroke analysis'}</h2>
+                          <p>{item.video_filename || 'Saved analysis results'}</p>
+                        </div>
+                        <div className="history-score">
+                          <strong>{item.form_score == null ? '—' : Number(item.form_score).toFixed(1)}</strong>
+                          <small>FORM SCORE</small>
+                        </div>
+                      </div>
+                      <div className="history-metrics">
+                        <span>Biomechanical <strong>{item.biomechanical_score == null ? '—' : Number(item.biomechanical_score).toFixed(1)}</strong></span>
+                        <span>Temporal <strong>{item.temporal_similarity_score == null ? '—' : Number(item.temporal_similarity_score).toFixed(1)}</strong></span>
+                        <span>Video <strong>{item.video_saved ? 'Retained' : 'Not saved'}</strong></span>
+                      </div>
+                      <div className="history-card-actions">
+                        <button className="text-button" onClick={() => openHistoryItem(item)}>View analysis details →</button>
+                        {item.video_saved && (
+                          <button
+                            className="text-button"
+                            onClick={() => openHistoryVideo(item)}
+                            disabled={isHistoryVideoLoading}
+                          >
+                            {isHistoryVideoLoading ? 'Preparing video…' : 'Watch original video →'}
+                          </button>
+                        )}
+                      </div>
+                    </article>
+                  ))}
+                </div>
+                {historyVideoError && (
+                  <section className="panel history-video-panel">
+                    <div className="notice">{historyVideoError}</div>
+                  </section>
+                )}
+                {historyVideo && (
+                  <section className="panel history-video-panel">
+                    <div className="panel-heading">
+                      <div>
+                        <p className="eyebrow">SAVED ORIGINAL VIDEO</p>
+                        <h2>{historyVideo.filename}</h2>
+                      </div>
+                      <button className="text-button" onClick={() => setHistoryVideo(null)}>Close video</button>
+                    </div>
+                    <video
+                      className="history-video-player"
+                      src={historyVideo.url}
+                      controls
+                      playsInline
+                      preload="metadata"
+                    >
+                      Your browser does not support HTML video playback.
+                    </video>
+                    <p className="form-analysis-intro">
+                      This private playback link expires after 15 minutes. Reopen the video from history to generate a fresh link.
+                    </p>
+                  </section>
+                )}
+                {selectedHistory && (
+                  <section className="panel history-detail">
+                    <div className="panel-heading">
+                      <div><p className="eyebrow">SAVED EVALUATION</p><h2>Analysis details</h2></div>
+                      <button className="text-button" onClick={() => setSelectedHistory(null)}>Close</button>
+                    </div>
+                    <pre>{JSON.stringify(selectedHistory.result ?? selectedHistory, null, 2)}</pre>
+                  </section>
+                )}
+              </>
+            )}
           </section>
         )}
+
 
         {page === 'Account' && (
           <section className="page-content inner-page">
             <p className="eyebrow">YOUR ACCOUNT</p>
-            <h1>Keep your progress<span>.</span></h1>
+
+            <h1>
+              {user ? 'Welcome back' : 'Keep your progress'}
+              <span>.</span>
+            </h1>
+
             <section className="account-options panel">
-              <div className="account-symbol">♙</div>
-              <h2>Continue as a guest</h2>
-              <p>
-                You can analyse videos without registering. Guest results
-                are not saved to an account.
-              </p>
-              <button className="primary-button" onClick={() => setPage('Analyse Stroke')}>
-                Continue analysing →
-              </button>
-              <div className="account-divider"><span>OR</span></div>
-              <h2>Save your analyses</h2>
-              <p>
-                Account registration and sign-in will be connected to the
-                backend in a later step.
-              </p>
-              <button className="secondary-button" onClick={() => setMessage('Account registration is not connected yet.')}>
-                Register / Log in
-              </button>
-              {message && <div className="notice" role="status">{message}</div>}
+
+              {user ? (
+                <>
+                  <div className="account-symbol">♙</div>
+
+                  <h2>Your account</h2>
+
+                  <p>You are signed in to Rally Badminton Analytics.</p>
+
+                  <div className="result-meta">
+                    <span>Username</span>
+                    <strong>{user.username}</strong>
+
+                    <span>Email</span>
+                    <strong>{user.email}</strong>
+
+                    <span>Account ID</span>
+                    <strong>{user.id}</strong>
+                  </div>
+
+                  <button
+                    className="primary-button"
+                    onClick={() => setPage('Analyse Stroke')}
+                  >
+                    Analyse a stroke →
+                  </button>
+
+                  <button
+                    className="secondary-button"
+                    onClick={handleLogout}
+                  >
+                    Log out
+                  </button>
+                </>
+              ) : (
+                <>
+                  <div className="account-symbol">♙</div>
+
+                  <h2>
+                    {authMode === 'register'
+                      ? 'Create your account'
+                      : 'Welcome back'}
+                  </h2>
+
+                  <p>
+                    {authMode === 'register'
+                      ? 'Create an account to start saving your badminton analyses.'
+                      : 'Log in to access your Rally account.'}
+                  </p>
+
+                  <form onSubmit={handleAuthSubmit}>
+                    <div className="auth-form-field">
+                      <label htmlFor="auth-email">Email address</label>
+                      <input
+                        id="auth-email"
+                        type="email"
+                        value={authEmail}
+                        onChange={(event) =>
+                          setAuthEmail(event.target.value)
+                        }
+                        placeholder="you@example.com"
+                        required
+                      />
+                    </div>
+
+                    {authMode === 'register' && (
+                      <div className="auth-form-field">
+                        <label htmlFor="auth-username">Username</label>
+                        <input
+                          id="auth-username"
+                          type="text"
+                          value={authUsername}
+                          onChange={(event) =>
+                            setAuthUsername(event.target.value)
+                          }
+                          placeholder="Choose a username"
+                          minLength={3}
+                          maxLength={100}
+                          required
+                        />
+                      </div>
+                    )}
+
+                    <div className="auth-form-field">
+                      <label htmlFor="auth-password">Password</label>
+                      <input
+                        id="auth-password"
+                        type="password"
+                        value={authPassword}
+                        onChange={(event) =>
+                          setAuthPassword(event.target.value)
+                        }
+                        placeholder="Enter your password"
+                        minLength={authMode === 'register' ? 8 : undefined}
+                        maxLength={128}
+                        required
+                      />
+                    </div>
+
+                    <button
+                      type="submit"
+                      className="primary-button"
+                      disabled={isAuthLoading}
+                    >
+                      {isAuthLoading
+                        ? 'Please wait...'
+                        : authMode === 'register'
+                          ? 'Create account →'
+                          : 'Log in →'}
+                    </button>
+                  </form>
+
+                  {authMessage && (
+                    <div className="notice" role="status">
+                      {authMessage}
+                    </div>
+                  )}
+
+                  <div className="account-divider">
+                    <span>OR</span>
+                  </div>
+
+                  <button
+                    type="button"
+                    className="secondary-button"
+                    onClick={() => {
+                      setAuthMode(
+                        authMode === 'login' ? 'register' : 'login'
+                      )
+                      setAuthMessage('')
+                      setAuthPassword('')
+                    }}
+                  >
+                    {authMode === 'login'
+                      ? 'Create a new account'
+                      : 'Already have an account? Log in'}
+                  </button>
+
+                  <button
+                    type="button"
+                    className="text-button"
+                    onClick={() => setPage('Analyse Stroke')}
+                  >
+                    Continue as guest →
+                  </button>
+                </>
+              )}
+
             </section>
           </section>
         )}
+
       </main>
     </div>
   )
