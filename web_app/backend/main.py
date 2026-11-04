@@ -1,14 +1,48 @@
 
 from pathlib import Path
+from datetime import datetime, timedelta, timezone
 import tempfile
 import sys
+import os
+import uuid
+import mimetypes
+
+import boto3
 
 import cv2
 import mediapipe as mp
 import numpy as np
 
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import (
+    Response,
+    FastAPI,
+    File,
+    Form,
+    HTTPException,
+    UploadFile,
+    Depends,
+    status,
+    Query
+)
+
+from sqlalchemy.orm import Session
+from sqlalchemy.exc import IntegrityError
+
+from database import get_db
+from models import User, Analysis
+from schemas import UserRegister, UserLogin, UserResponse, TokenResponse
+
+from auth import (
+    hash_password,
+    verify_password,
+    create_access_token,
+    get_current_user,
+    get_optional_current_user,
+    AUTH_COOKIE_NAME,
+    ACCESS_TOKEN_EXPIRE_MINUTES
+)
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.encoders import jsonable_encoder
 
 
 # ============================================================
@@ -20,7 +54,7 @@ app = FastAPI(title="Rally Badminton Analytics API")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173"],
-    allow_credentials=False,
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -54,7 +88,43 @@ ALLOWED_EXTENSIONS = {
 }
 
 MAX_FILE_SIZE = 200 * 1024 * 1024
+
 TARGET_FRAMES = 30
+
+
+# ============================================================
+# CLOUDFLARE R2 CONFIGURATION
+# ============================================================
+
+VIDEO_RETENTION_DAYS = int(os.getenv("VIDEO_RETENTION_DAYS", "90"))
+
+
+def get_r2_client():
+    """Create an S3-compatible Cloudflare R2 client from environment settings."""
+    account_id = os.getenv("R2_ACCOUNT_ID")
+    access_key_id = os.getenv("R2_ACCESS_KEY_ID")
+    secret_access_key = os.getenv("R2_SECRET_ACCESS_KEY")
+    endpoint_url = os.getenv("R2_ENDPOINT_URL") or (
+        f"https://{account_id}.r2.cloudflarestorage.com" if account_id else None
+    )
+
+    if not all([account_id, access_key_id, secret_access_key, endpoint_url]):
+        raise RuntimeError("Cloudflare R2 credentials or endpoint are missing from .env.")
+
+    return boto3.client(
+        "s3",
+        endpoint_url=endpoint_url,
+        aws_access_key_id=access_key_id,
+        aws_secret_access_key=secret_access_key,
+        region_name="auto",
+    )
+
+
+def get_r2_bucket_name():
+    bucket_name = os.getenv("R2_BUCKET_NAME")
+    if not bucket_name:
+        raise RuntimeError("R2_BUCKET_NAME is missing from .env.")
+    return bucket_name
 
 
 # Keep these values consistent with the training extraction script.
@@ -255,18 +325,18 @@ def resample_sequence(
 # MEDIAPIPE EXTRACTION WITH PLAYER SELECTION AND CSRT TRACKING
 # ============================================================
 
-def extract_pose_sequence(video_path):
+def extract_pose_sequence(video_path, roi):
     """
     Match the training extraction pipeline:
 
-    1. Manual first-frame player selection.
+    1. Use the manually selected first-frame ROI supplied by the browser.
     2. CSRT tracking.
     3. Expanded player crops.
     4. Hip-relative 99-feature coordinates.
     5. Landmark-guided tracking updates.
     6. Resampling to 30 frames.
 
-    Requires a desktop session because cv2.selectROI opens a window.
+    The browser supplies normalised ROI coordinates; no desktop GUI is used.
     """
 
     cap = cv2.VideoCapture(str(video_path))
@@ -288,51 +358,37 @@ def extract_pose_sequence(video_path):
 
     frame_h, frame_w = first_frame.shape[:2]
 
-    window_name = (
-        "Select player - draw box around entire visible body"
-    )
-
-    print(
-        "\nSelect the intended player in the first frame. "
-        "Draw a box around the visible body, then press "
-        "ENTER/SPACE to confirm. Press C to cancel."
-    )
-
-    try:
-
-        selected = cv2.selectROI(
-            window_name,
-            first_frame,
-            showCrosshair=True,
-            fromCenter=False
-        )
-
-    except cv2.error as exc:
-
+    # Convert browser-normalised ROI coordinates to source-video pixels.
+    roi_x, roi_y, roi_width, roi_height = roi
+    if not all(np.isfinite(value) for value in roi):
         cap.release()
-        cv2.destroyAllWindows()
-
-        raise RuntimeError(
-            "Player selection window could not open. "
-            "Run the backend in a desktop session that "
-            "supports OpenCV windows."
-        ) from exc
-
-    finally:
-        cv2.destroyWindow(window_name)
-
-    x, y, w, h = map(int, selected)
-
-    if w <= 0 or h <= 0:
+        raise ValueError("Player selection contains invalid coordinates.")
+    if (
+        roi_x < 0 or roi_y < 0 or roi_width <= 0 or roi_height <= 0
+        or roi_x >= 1 or roi_y >= 1
+        or roi_x + roi_width > 1.000001
+        or roi_y + roi_height > 1.000001
+    ):
         cap.release()
+        raise ValueError("Player selection is outside the video frame or has an invalid size.")
 
-        raise ValueError(
-            "Player selection was cancelled or the "
-            "selection box was empty."
-        )
+    x = int(round(roi_x * frame_w))
+    y = int(round(roi_y * frame_h))
+    w = int(round(roi_width * frame_w))
+    h = int(round(roi_height * frame_h))
+
+    x1, y1, x2, y2 = clip_box(x, y, w, h, frame_w, frame_h)
+    x, y, w, h = x1, y1, x2 - x1, y2 - y1
+
+    if w < 2 or h < 2:
+        cap.release()
+        raise ValueError("Player selection is too small. Draw a larger box around the player.")
 
     tracker = create_tracker()
-    tracker.init(first_frame, (x, y, w, h))
+    tracker_initialised = tracker.init(first_frame, (x, y, w, h))
+    if tracker_initialised is False:
+        cap.release()
+        raise RuntimeError("CSRT could not initialise with the selected player box.")
 
     coordinates = []
     visibilities = []
@@ -490,69 +546,11 @@ def extract_pose_sequence(video_path):
                 coordinates.append(features)
                 visibilities.append(visibility)
 
-                # Display tracking progress.
-                display = frame.copy()
-
-                box_color = (
-                    (0, 220, 0)
-                    if pose_found
-                    else (0, 0, 255)
-                )
-
-                cv2.rectangle(
-                    display,
-                    (x, y),
-                    (x + w, y + h),
-                    box_color,
-                    2
-                )
-
-                detection_rate = (
-                    pose_detections /
-                    (frame_index + 1) * 100.0
-                )
-
-                cv2.putText(
-                    display,
-                    f"Frame {frame_index + 1}/{total_frames} | "
-                    f"Pose: {'YES' if pose_found else 'NO'} | "
-                    f"Detection: {detection_rate:.1f}%",
-                    (10, 28),
-                    cv2.FONT_HERSHEY_SIMPLEX,
-                    0.65,
-                    box_color,
-                    2,
-                )
-
-                cv2.putText(
-                    display,
-                    "Q = cancel video",
-                    (10, 56),
-                    cv2.FONT_HERSHEY_SIMPLEX,
-                    0.6,
-                    (255, 255, 255),
-                    2,
-                )
-
-                cv2.imshow(
-                    "Tracked player",
-                    display
-                )
-
-                key = cv2.waitKey(1) & 0xFF
-
                 frame_index += 1
-
-                if key == ord("q") or key == 27:
-
-                    raise ValueError(
-                        "Video analysis cancelled during tracking."
-                    )
 
     finally:
 
         cap.release()
-        cv2.destroyAllWindows()
 
     if not coordinates:
         raise ValueError(
@@ -592,6 +590,7 @@ def extract_pose_sequence(video_path):
         ),
         "tracker_failures": tracker_failures,
         "selected_player_tracking": True,
+        "selection_method": "browser_manual_roi",
         "expanded_crops": True,
         "landmark_guided_tracking": True,
         "visibility_mean": round(
@@ -617,6 +616,7 @@ def health():
         "full_feature_shape": [TARGET_FRAMES, 139],
         "classes": CLASSES,
         "player_selection_enabled": True,
+        "player_selection_method": "browser_manual_roi",
         "csrt_tracking_enabled": True,
         "expanded_crops_enabled": True,
         "landmark_guided_tracking_enabled": True
@@ -627,168 +627,427 @@ def health():
 # VIDEO ANALYSIS AND LSTM AUTOENCODER FORM EVALUATION
 # ============================================================
 
+
 @app.post("/api/analyse")
 async def analyse_video(
     file: UploadFile = File(...),
     stroke_type: str = Form(...),
+    save_analysis: bool = Form(False),
+    save_video: bool = Form(False),
+    roi_x: float = Form(...),
+    roi_y: float = Form(...),
+    roi_width: float = Form(...),
+    roi_height: float = Form(...),
+    db: Session = Depends(get_db),
+    current_user: User | None = Depends(get_optional_current_user),
 ):
+    """Analyse a video; optionally persist results and the source video."""
+    if save_analysis and current_user is None:
+        raise HTTPException(status_code=401, detail="Log in to save analysis results.")
 
-    extension = Path(
-        file.filename or ""
-    ).suffix.lower()
-
-    if extension not in ALLOWED_EXTENSIONS:
-
+    if save_video and not save_analysis:
         raise HTTPException(
             status_code=400,
-            detail=(
-                "Unsupported video format. "
-                "Use MP4, MOV, WEBM, AVI, or MKV."
-            )
+            detail="Saving the video also requires saving its analysis."
+        )
+
+    extension = Path(file.filename or "").suffix.lower()
+    if extension not in ALLOWED_EXTENSIONS:
+        raise HTTPException(
+            status_code=400,
+            detail="Unsupported video format. Use MP4, MOV, WEBM, AVI, or MKV."
         )
 
     if stroke_type not in CLASSES:
+        raise HTTPException(status_code=400, detail="Select Clear, Drop Shot, or Smash.")
 
-        raise HTTPException(
-            status_code=400,
-            detail="Select Clear, Drop Shot, or Smash."
-        )
-
-    contents = await file.read(
-        MAX_FILE_SIZE + 1
-    )
-
+    contents = await file.read(MAX_FILE_SIZE + 1)
     if not contents:
-
-        raise HTTPException(
-            status_code=400,
-            detail="The video is empty."
-        )
-
+        raise HTTPException(status_code=400, detail="The video is empty.")
     if len(contents) > MAX_FILE_SIZE:
-
-        raise HTTPException(
-            status_code=413,
-            detail="Video must be smaller than 200 MB."
-        )
+        raise HTTPException(status_code=413, detail="Video must be smaller than 200 MB.")
 
     temp_path = None
+    uploaded_object_key = None
 
     try:
-
-        # ----------------------------------------------------
-        # 1. SAVE TEMPORARY VIDEO
-        # ----------------------------------------------------
-
-        with tempfile.NamedTemporaryFile(
-            suffix=extension,
-            delete=False
-        ) as temp_file:
-
+        # Preserve the existing temporary-file, pose extraction and LSTM workflow.
+        with tempfile.NamedTemporaryFile(suffix=extension, delete=False) as temp_file:
             temp_file.write(contents)
             temp_path = Path(temp_file.name)
 
-        # ----------------------------------------------------
-        # 2. EXTRACT POSE SEQUENCE
-        # ----------------------------------------------------
-
-        sequence, video_info = extract_pose_sequence(
-            temp_path
-        )
-
-        if sequence.shape != (
-            TARGET_FRAMES,
-            99
-        ):
-
+        selected_roi = (roi_x, roi_y, roi_width, roi_height)
+        sequence, video_info = extract_pose_sequence(temp_path, selected_roi)
+        if sequence.shape != (TARGET_FRAMES, 99):
             raise ValueError(
-                f"Expected pose sequence shape "
-                f"({TARGET_FRAMES}, 99), "
-                f"got {sequence.shape}"
+                f"Expected pose sequence shape ({TARGET_FRAMES}, 99), got {sequence.shape}"
             )
 
-        # ----------------------------------------------------
-        # 3. SELECT MATCHING AUTOENCODER
-        # ----------------------------------------------------
-
-        autoencoder_class = STROKE_CLASS_MAP[
-            stroke_type
-        ]
-
-        # ----------------------------------------------------
-        # 4. RUN OBJECTIVE 3 FORM EVALUATION
-        # ----------------------------------------------------
-
+        autoencoder_class = STROKE_CLASS_MAP[stroke_type]
         form_analysis = evaluate_form(
             pose_sequence=sequence,
             predicted_class=autoencoder_class
         )
 
-        # ----------------------------------------------------
-        # 5. TRACKING WARNING
-        # ----------------------------------------------------
-
         warning = None
-
         if video_info["low_detection_warning"]:
-
             warning = (
-                "Pose detection was below 80%. "
-                "Review the player selection and tracking. "
+                "Pose detection was below 80%. Review the player selection and tracking. "
                 "The form evaluation may be unreliable."
             )
 
-        # ----------------------------------------------------
-        # 6. RETURN RESULT
-        # ----------------------------------------------------
-
-        return {
+        response_data = {
             "status": "success",
-
             "evaluation_method": "LSTM Autoencoder",
-
             "filename": file.filename,
-
             "selected_stroke_type": stroke_type,
-
             "video_info": video_info,
-
             "form_analysis": form_analysis,
-
             "warning": warning,
-
             "message": (
-                "Form evaluation completed using "
-                "class-specific professional reference "
-                "profiles, biomechanical feature comparison, "
-                "and LSTM autoencoder reconstruction."
-            )
+                "Form evaluation completed using class-specific professional reference "
+                "profiles, biomechanical feature comparison, and LSTM autoencoder reconstruction."
+            ),
         }
 
+        saved_analysis_id = None
+        video_expires_at = None
+
+        # Save only when an authenticated user explicitly opts in.
+        if save_analysis and current_user is not None:
+            safe_filename = Path(file.filename or "video").name
+            object_key = None
+
+            if save_video:
+                object_key = (
+                    f"users/{current_user.id}/analyses/{uuid.uuid4().hex}{extension}"
+                )
+                video_expires_at = datetime.now(timezone.utc) + timedelta(
+                    days=VIDEO_RETENTION_DAYS
+                )
+
+                try:
+                    get_r2_client().put_object(
+                        Bucket=get_r2_bucket_name(),
+                        Key=object_key,
+                        Body=contents,
+                        ContentType=file.content_type or "application/octet-stream",
+                    )
+                    uploaded_object_key = object_key
+                except Exception as exc:
+                    raise HTTPException(
+                        status_code=502,
+                        detail=f"Could not save the video to cloud storage: {exc}"
+                    ) from exc
+
+            form_values = form_analysis if isinstance(form_analysis, dict) else {}
+            analysis_record = Analysis(
+                user_id=current_user.id,
+                stroke_type=stroke_type,
+                form_score=form_values.get("form_score"),
+                biomechanical_score=form_values.get("biomechanical_score"),
+                temporal_similarity_score=form_values.get("temporal_similarity_score"),
+                reconstruction_error=form_values.get("reconstruction_error"),
+                result_data=jsonable_encoder(response_data),
+                video_saved=bool(save_video),
+                video_object_key=object_key,
+                video_filename=safe_filename if save_video else None,
+                video_expires_at=video_expires_at,
+            )
+
+            try:
+                db.add(analysis_record)
+                db.commit()
+                db.refresh(analysis_record)
+                saved_analysis_id = str(analysis_record.id)
+            except Exception:
+                db.rollback()
+                if uploaded_object_key:
+                    try:
+                        get_r2_client().delete_object(
+                            Bucket=get_r2_bucket_name(),
+                            Key=uploaded_object_key,
+                        )
+                    except Exception:
+                        pass
+                raise
+
+        response_data["saved"] = bool(saved_analysis_id)
+        response_data["analysis_id"] = saved_analysis_id
+        response_data["video_saved"] = bool(save_video and saved_analysis_id)
+        response_data["video_expires_at"] = (
+            video_expires_at.isoformat() if video_expires_at and saved_analysis_id else None
+        )
+        return response_data
+
+    except HTTPException:
+        raise
     except ValueError as exc:
-
-        raise HTTPException(
-            status_code=422,
-            detail=str(exc)
-        ) from exc
-
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     except (OSError, RuntimeError) as exc:
-
-        raise HTTPException(
-            status_code=500,
-            detail=f"Form evaluation failed: {exc}"
-        ) from exc
-
+        raise HTTPException(status_code=500, detail=f"Form evaluation failed: {exc}") from exc
     except Exception as exc:
-
-        raise HTTPException(
-            status_code=500,
-            detail=f"Video analysis failed: {exc}"
-        ) from exc
-
+        raise HTTPException(status_code=500, detail=f"Video analysis failed: {exc}") from exc
     finally:
-
         if temp_path is not None:
             temp_path.unlink(missing_ok=True)
-
         await file.close()
+
+
+# ============================================================
+# ANALYSIS HISTORY
+# ============================================================
+
+@app.get("/api/analyses")
+def get_analysis_history(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+    limit: int = Query(default=50, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+):
+    """Return only the signed-in user's saved analyses, newest first."""
+    records = (
+        db.query(Analysis)
+        .filter(Analysis.user_id == current_user.id)
+        .order_by(Analysis.created_at.desc())
+        .offset(offset)
+        .limit(limit)
+        .all()
+    )
+
+    return {
+        "items": [
+            {
+                "id": str(record.id),
+                "stroke_type": record.stroke_type,
+                "form_score": record.form_score,
+                "biomechanical_score": record.biomechanical_score,
+                "temporal_similarity_score": record.temporal_similarity_score,
+                "reconstruction_error": record.reconstruction_error,
+                "video_saved": record.video_saved,
+                "video_filename": record.video_filename,
+                "video_expires_at": record.video_expires_at,
+                "created_at": record.created_at,
+                "result": record.result_data,
+            }
+            for record in records
+        ],
+        "count": len(records),
+        "limit": limit,
+        "offset": offset,
+    }
+
+
+@app.get("/api/analyses/{analysis_id}")
+def get_analysis_detail(
+    analysis_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Return one saved analysis only if it belongs to the current user."""
+    record = (
+        db.query(Analysis)
+        .filter(
+            Analysis.id == analysis_id,
+            Analysis.user_id == current_user.id,
+        )
+        .first()
+    )
+
+    if record is None:
+        raise HTTPException(status_code=404, detail="Analysis not found.")
+
+    return {
+        "id": str(record.id),
+        "stroke_type": record.stroke_type,
+        "video_saved": record.video_saved,
+        "video_filename": record.video_filename,
+        "video_expires_at": record.video_expires_at,
+        "created_at": record.created_at,
+        "result": record.result_data,
+    }
+
+
+@app.get("/api/analyses/{analysis_id}/video")
+def get_analysis_video(
+    analysis_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Return a short-lived, signed Cloudflare R2 URL for a saved video.
+    The analysis must belong to the currently authenticated user.
+    """
+    record = (
+        db.query(Analysis)
+        .filter(
+            Analysis.id == analysis_id,
+            Analysis.user_id == current_user.id,
+        )
+        .first()
+    )
+
+    # Do not reveal whether an analysis exists for another user.
+    if record is None:
+        raise HTTPException(status_code=404, detail="Analysis not found.")
+
+    if not record.video_saved or not record.video_object_key:
+        raise HTTPException(
+            status_code=404,
+            detail="No saved video is available for this analysis.",
+        )
+
+    if record.video_expires_at is not None:
+        expires_at = record.video_expires_at
+        if expires_at.tzinfo is None:
+            expires_at = expires_at.replace(tzinfo=timezone.utc)
+        if expires_at <= datetime.now(timezone.utc):
+            raise HTTPException(
+                status_code=410,
+                detail="This saved video has expired.",
+            )
+
+    filename = Path(record.video_filename or "badminton-video").name
+    content_type = mimetypes.guess_type(filename)[0] or "application/octet-stream"
+
+    try:
+        client = get_r2_client()
+        # Ensure the object still exists before returning a playback link.
+        client.head_object(
+            Bucket=get_r2_bucket_name(),
+            Key=record.video_object_key,
+        )
+        signed_url = client.generate_presigned_url(
+            "get_object",
+            Params={
+                "Bucket": get_r2_bucket_name(),
+                "Key": record.video_object_key,
+                "ResponseContentDisposition": f'inline; filename="{filename}"',
+                "ResponseContentType": content_type,
+            },
+            ExpiresIn=900,
+        )
+    except Exception as exc:
+        raise HTTPException(
+            status_code=502,
+            detail="Could not retrieve the saved video from cloud storage.",
+        ) from exc
+
+    return {
+        "video_url": signed_url,
+        "filename": filename,
+        "expires_in": 900,
+    }
+
+
+# ============================================================
+# USER AUTHENTICATION
+# ============================================================
+
+@app.post(
+    "/api/auth/register",
+    response_model=UserResponse,
+    status_code=status.HTTP_201_CREATED
+)
+def register_user(
+    user_data: UserRegister,
+    db: Session = Depends(get_db)
+):
+    # Normalise email and username
+    email = str(user_data.email).strip().lower()
+    username = user_data.username.strip()
+
+    if not username:
+        raise HTTPException(
+            status_code=400,
+            detail="Username cannot be empty."
+        )
+
+    # Check whether email already exists
+    existing_user = db.query(User).filter(
+        User.email == email
+    ).first()
+
+    if existing_user:
+        raise HTTPException(
+            status_code=409,
+            detail="An account with this email already exists."
+        )
+
+    # Create user with securely hashed password
+    new_user = User(
+        email=email,
+        username=username,
+        password_hash=hash_password(user_data.password)
+    )
+
+    try:
+        db.add(new_user)
+        db.commit()
+        db.refresh(new_user)
+
+    except IntegrityError:
+        db.rollback()
+
+        raise HTTPException(
+            status_code=409,
+            detail="An account with this email already exists."
+        )
+
+    return new_user
+
+
+@app.post("/api/auth/login")
+def login_user(
+    login_data: UserLogin,
+    response: Response,
+    db: Session = Depends(get_db)
+):
+    email = str(login_data.email).strip().lower()
+    user = db.query(User).filter(User.email == email).first()
+
+    if not user or not verify_password(login_data.password, user.password_hash):
+        raise HTTPException(status_code=401, detail="Incorrect email or password.")
+    if not user.is_active:
+        raise HTTPException(status_code=403, detail="This account is inactive.")
+
+    access_token = create_access_token(str(user.id))
+    cookie_secure = os.getenv("AUTH_COOKIE_SECURE", "false").lower() == "true"
+    cookie_samesite = os.getenv("AUTH_COOKIE_SAMESITE", "lax").lower()
+    if cookie_samesite not in {"lax", "strict", "none"}:
+        cookie_samesite = "lax"
+
+    response.set_cookie(
+        key=AUTH_COOKIE_NAME,
+        value=access_token,
+        max_age=ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+        httponly=True,
+        secure=cookie_secure,
+        samesite=cookie_samesite,
+        path="/",
+    )
+    # Do not return the JWT to JavaScript; the browser stores the HTTP-only cookie.
+    return {"message": "Login successful."}
+
+
+@app.post("/api/auth/logout")
+def logout_user(response: Response):
+    response.delete_cookie(
+        key=AUTH_COOKIE_NAME,
+        path="/",
+        httponly=True,
+        secure=os.getenv("AUTH_COOKIE_SECURE", "false").lower() == "true",
+        samesite=os.getenv("AUTH_COOKIE_SAMESITE", "lax").lower(),
+    )
+    return {"message": "Logged out successfully."}
+
+
+@app.get(
+    "/api/auth/me",
+    response_model=UserResponse
+)
+def get_my_account(
+    current_user: User = Depends(get_current_user)
+):
+    return current_user
+
