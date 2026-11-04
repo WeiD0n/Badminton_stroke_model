@@ -5,7 +5,7 @@ import badmintonHero from './assets/Neon Badminton Pose Tracking Dashboard.png';
 
 const strokeTypes = [
   { name: 'Smash', icon: '↗', description: 'Powerful attacking stroke' },
-  { name: 'Drop Shot', icon: '⌄', description: 'Controlled shot near the net' },
+  { name: 'Drop Shot', icon: '↗', description: 'Controlled shot near the net' },
   { name: 'Clear', icon: '↗', description: 'High shot to the backcourt' },
 ]
 
@@ -63,7 +63,7 @@ function App() {
     }
 
     setIsAnalysing(true)
-    setMessage('Connecting to the E05 model. If prompted, select the player in the OpenCV window.')
+    setMessage('Connecting to the LSTM autoencoder. If prompted, select the player in the OpenCV window.')
     setAnalysisResult(null)
 
     try {
@@ -255,7 +255,7 @@ function App() {
                   {[
                     ['01', 'Upload video', 'Select recorded footage'],
                     ['02', 'Extract pose', 'Track skeletal landmarks'],
-                    ['03', 'Evaluate stroke', 'Review model predictions'],
+                    ['03', 'Evaluate form', 'Review biomechanical feedback'],
                   ].map(([number, title, description]) => (
                     <div className="workflow-step" key={number}>
                       <span className="step-number">{number}</span>
@@ -463,41 +463,128 @@ function App() {
                   <section className="panel analysis-results" aria-live="polite">
                     <div className="panel-heading">
                       <div>
-                        <p className="eyebrow">E05 MODEL RESULTS</p>
-                        <h2>Stroke analysis</h2>
+                        <p className="eyebrow">LSTM AUTOENCODER RESULTS</p>
+                        <h2>Stroke form evaluation</h2>
                       </div>
                       <span className="muted-tag">COMPLETED</span>
                     </div>
-                    <div className="analysis-prediction">
-                      <span className="result-label">Predicted stroke</span>
-                      <h3>{analysisResult.predicted_stroke}</h3>
-                      <p>{Math.round((analysisResult.confidence || 0) * 100)}% model confidence</p>
-                    </div>
-                    <div className="probability-list">
-                      {Object.entries(analysisResult.probabilities || {}).map(([name, value]) => (
-                        <div className="probability-row" key={name}>
-                          <div className="probability-heading">
-                            <span>{name}</span>
-                            <strong>{Math.round(value * 100)}%</strong>
-                          </div>
-                          <div className="probability-track">
-                            <div className="probability-fill" style={{ width: `${Math.max(0, Math.min(1, value)) * 100}%` }} />
-                          </div>
+
+                    {analysisResult.warning && (
+                      <div className="notice" role="status">
+                        {analysisResult.warning}
+                      </div>
+                    )}
+
+                    <div className="form-score-card">
+                      <div>
+                        <span className="result-label">Overall form score</span>
+                        <div className="form-score-value">
+                          {Number(analysisResult.form_analysis?.form_score ?? 0).toFixed(2)}
+                          <small> / 100</small>
                         </div>
-                      ))}
+                      </div>
+                      <span className="form-rating">
+                        {analysisResult.form_analysis?.form_rating || 'Not available'}
+                      </span>
                     </div>
+
+                    <div className="form-metric-grid">
+                      <article className="form-metric-card">
+                        <span>Biomechanical score</span>
+                        <strong>
+                          {Number(analysisResult.form_analysis?.biomechanical_score ?? 0).toFixed(2)}
+                        </strong>
+                        <small> / 100</small>
+                      </article>
+                      <article className="form-metric-card">
+                        <span>Temporal similarity</span>
+                        <strong>
+                          {Number(analysisResult.form_analysis?.temporal_similarity_score ?? 0).toFixed(2)}
+                        </strong>
+                        <small> / 100</small>
+                      </article>
+                      <article className="form-metric-card">
+                        <span>Reconstruction error</span>
+                        <strong>
+                          {Number(analysisResult.form_analysis?.reconstruction_error ?? 0).toFixed(6)}
+                        </strong>
+                      </article>
+                    </div>
+
                     <div className="result-meta">
-                      <span>Pose detection</span>
-                      <strong>{Math.round((analysisResult.video_info?.pose_detection_rate || 0) * 100)}%</strong>
+                      <span>Selected stroke</span>
+                      <strong>{analysisResult.selected_stroke_type}</strong>
                       <span>Frames processed</span>
                       <strong>{analysisResult.video_info?.frame_count ?? '—'}</strong>
+                      <span>Pose detection</span>
+                      <strong>
+                        {Math.round((analysisResult.video_info?.pose_detection_rate ?? 0) * 100)}%
+                      </strong>
+                      <span>Average landmark visibility</span>
+                      <strong>
+                        {Math.round((analysisResult.video_info?.visibility_mean ?? 0) * 100)}%
+                      </strong>
                       <span>Tracker failures</span>
                       <strong>{analysisResult.video_info?.tracker_failures ?? '—'}</strong>
                     </div>
-                    {analysisResult.matches_selected_type === false && (
-                      <p className="result-disclaimer">The predicted stroke differs from your selected stroke type. Check the clip and player tracking.</p>
-                    )}
-                    <p className="result-disclaimer">Confidence is the model's predicted probability, not a guarantee of real-world accuracy.</p>
+
+                    <section className="form-analysis-section">
+                      <div className="panel-heading">
+                        <div>
+                          <p className="eyebrow">MOVEMENT DEVIATIONS</p>
+                          <h2>Top feature deviations</h2>
+                        </div>
+                      </div>
+
+                      {analysisResult.form_analysis?.top_feature_deviations?.length > 0 ? (
+                        <div className="deviation-list">
+                          {analysisResult.form_analysis.top_feature_deviations.map((item, index) => (
+                            <article className="deviation-row" key={`${item.feature}-${index}`}>
+                              <div>
+                                <strong>{item.feature}</strong>
+                                <small>Deviation from the reference profile</small>
+                              </div>
+                              <span>{Number(item.deviation).toFixed(2)}</span>
+                            </article>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="form-analysis-intro">
+                          No feature deviations were returned.
+                        </p>
+                      )}
+                    </section>
+
+                    <section className="form-analysis-section">
+                      <div className="panel-heading">
+                        <div>
+                          <p className="eyebrow">PERSONALISED OBSERVATIONS</p>
+                          <h2>Form feedback</h2>
+                        </div>
+                      </div>
+
+                      {analysisResult.form_analysis?.feedback?.length > 0 ? (
+                        <div className="form-feedback-list">
+                          {analysisResult.form_analysis.feedback.map((item, index) => (
+                            <article className="form-feedback-card" key={`${item}-${index}`}>
+                              <span className="form-feedback-category">
+                                Observation {String(index + 1).padStart(2, '0')}
+                              </span>
+                              <p>{item}</p>
+                            </article>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="form-analysis-intro">
+                          No additional feedback was generated for this video.
+                        </p>
+                      )}
+                    </section>
+
+                    <p className="result-disclaimer">
+                      {analysisResult.form_analysis?.score_interpretation ||
+                        'Prototype similarity score based on reference statistics and autoencoder reconstruction.'}
+                    </p>
                   </section>
                 )}
 
