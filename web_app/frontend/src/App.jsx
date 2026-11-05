@@ -19,6 +19,10 @@ function App() {
   const [isAnalysing, setIsAnalysing] = useState(false)
   const [analysisResult, setAnalysisResult] = useState(null)
   const [showTechnicalBreakdown, setShowTechnicalBreakdown] = useState(false)
+  const [skeletonOverlayUrl, setSkeletonOverlayUrl] = useState('')
+  const [isSkeletonOverlayLoading, setIsSkeletonOverlayLoading] = useState(false)
+  const [skeletonOverlayError, setSkeletonOverlayError] = useState('')
+  const [skeletonOverlayInfo, setSkeletonOverlayInfo] = useState(null)
   const [selectedRoi, setSelectedRoi] = useState(null)
   const [isDrawingRoi, setIsDrawingRoi] = useState(false)
   const roiStartRef = useRef(null)
@@ -110,6 +114,13 @@ function App() {
     return () => { isMounted = false }
   }, [])
 
+  // Release generated overlay URLs when replaced or when the component unmounts.
+  useEffect(() => {
+    return () => {
+      if (skeletonOverlayUrl) URL.revokeObjectURL(skeletonOverlayUrl)
+    }
+  }, [skeletonOverlayUrl])
+
   // Load this account's saved evaluations for the progress dashboard.
   // The existing history endpoint enforces ownership on the backend.
   useEffect(() => {
@@ -168,6 +179,9 @@ function App() {
     setVideoUrl(URL.createObjectURL(file))
     setMessage('')
     setAnalysisResult(null)
+    setSkeletonOverlayUrl('')
+    setSkeletonOverlayError('')
+    setSkeletonOverlayInfo(null)
     setSelectedRoi(null)
     setPage('Analyse Stroke')
   }
@@ -178,6 +192,9 @@ function App() {
     setVideoUrl('')
     setMessage('')
     setAnalysisResult(null)
+    setSkeletonOverlayUrl('')
+    setSkeletonOverlayError('')
+    setSkeletonOverlayInfo(null)
     setSelectedRoi(null)
     setIsDrawingRoi(false)
     if (fileInput.current) fileInput.current.value = ''
@@ -421,6 +438,58 @@ function App() {
     setMessage('Draw a selection box around the player before starting analysis.')
   }
 
+  async function generateSkeletonOverlay() {
+    if (!video) {
+      setSkeletonOverlayError('The original uploaded video is no longer available. Please upload it again.')
+      return
+    }
+
+    if (!selectedRoi) {
+      setSkeletonOverlayError('The player selection is missing. Please select the player again.')
+      return
+    }
+
+    setIsSkeletonOverlayLoading(true)
+    setSkeletonOverlayError('')
+    setSkeletonOverlayInfo(null)
+
+    try {
+      const formData = new FormData()
+      formData.append('file', video)
+      formData.append('roi_x', String(selectedRoi.x))
+      formData.append('roi_y', String(selectedRoi.y))
+      formData.append('roi_width', String(selectedRoi.width))
+      formData.append('roi_height', String(selectedRoi.height))
+
+      const response = await fetch(`${API_URL}/api/skeleton-overlay`, {
+        method: 'POST',
+        credentials: 'include',
+        body: formData,
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}))
+        throw new Error(errorData.detail || `Could not generate the skeleton overlay (HTTP ${response.status}).`)
+      }
+
+      const blob = await response.blob()
+      if (!blob.size || !blob.type.startsWith('video/')) {
+        throw new Error('The backend returned an invalid overlay video. Please check the backend response.')
+      }
+
+      const overlayUrl = URL.createObjectURL(blob)
+      setSkeletonOverlayUrl(overlayUrl)
+      setSkeletonOverlayInfo({
+        poseDetections: response.headers.get('X-Pose-Detections'),
+        processedFrames: response.headers.get('X-Processed-Frames'),
+      })
+    } catch (error) {
+      setSkeletonOverlayError(error instanceof Error ? error.message : 'Could not generate the skeleton overlay.')
+    } finally {
+      setIsSkeletonOverlayLoading(false)
+    }
+  }
+
   async function startAnalysis() {
     if (!video) {
       setMessage('Please upload a video before starting analysis.')
@@ -440,6 +509,9 @@ function App() {
     setIsAnalysing(true)
     setMessage('Processing the selected player with CSRT tracking, MediaPipe and the LSTM autoencoder…')
     setAnalysisResult(null)
+    setSkeletonOverlayUrl('')
+    setSkeletonOverlayError('')
+    setSkeletonOverlayInfo(null)
 
     try {
       const formData = new FormData()
@@ -1121,6 +1193,82 @@ function App() {
                       <span>Tracker failures</span>
                       <strong>{analysisResult.video_info?.tracker_failures ?? '—'}</strong>
                     </div>
+
+                    <section className="skeleton-overlay-section">
+                      <div className="skeleton-overlay-copy">
+                        <p className="eyebrow">VISUAL MOVEMENT TRACKING</p>
+                        <h3>Skeleton overlay video</h3>
+                        <p>
+                          View your uploaded footage with MediaPipe's detected body joints
+                          and connections drawn over the player throughout the movement.
+                        </p>
+                      </div>
+
+                      {!skeletonOverlayUrl && (
+                        <button
+                          type="button"
+                          className="primary-button skeleton-overlay-button"
+                          onClick={generateSkeletonOverlay}
+                          disabled={isSkeletonOverlayLoading}
+                        >
+                          {isSkeletonOverlayLoading ? 'Generating overlay…' : 'Generate skeleton overlay'}
+                          {!isSkeletonOverlayLoading && <span>↗</span>}
+                        </button>
+                      )}
+
+                      {isSkeletonOverlayLoading && (
+                        <div className="skeleton-overlay-status" role="status">
+                          Processing each video frame and drawing the detected body landmarks.
+                          This may take a little while for longer videos.
+                        </div>
+                      )}
+
+                      {skeletonOverlayError && (
+                        <div className="notice skeleton-overlay-error" role="alert">
+                          {skeletonOverlayError}
+                        </div>
+                      )}
+
+                      {skeletonOverlayUrl && (
+                        <div className="skeleton-overlay-result">
+                          <div className="skeleton-overlay-video-heading">
+                            <strong>Annotated movement video</strong>
+                            <button
+                              type="button"
+                              className="text-button"
+                              onClick={() => {
+                                setSkeletonOverlayUrl('')
+                                setSkeletonOverlayInfo(null)
+                                setSkeletonOverlayError('')
+                              }}
+                            >
+                              Close overlay
+                            </button>
+                          </div>
+                          <video
+                            className="skeleton-overlay-player"
+                            src={skeletonOverlayUrl}
+                            controls
+                            playsInline
+                            preload="metadata"
+                          >
+                            Your browser does not support HTML video playback.
+                          </video>
+                          <div className="skeleton-overlay-meta">
+                            {skeletonOverlayInfo?.processedFrames && (
+                              <span>{skeletonOverlayInfo.processedFrames} frames processed</span>
+                            )}
+                            {skeletonOverlayInfo?.poseDetections && (
+                              <span>{skeletonOverlayInfo.poseDetections} pose detections</span>
+                            )}
+                          </div>
+                          <p className="skeleton-overlay-caption">
+                            The original uploaded video remains unchanged. This is a separate
+                            annotated copy generated for visual review.
+                          </p>
+                        </div>
+                      )}
+                    </section>
 
                     {(() => {
                       const detail = analysisResult.form_analysis?.detailed_feedback || {}

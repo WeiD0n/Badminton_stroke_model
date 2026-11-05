@@ -22,9 +22,10 @@ from fastapi import (
     UploadFile,
     Depends,
     status,
-    Query
+    Query,
 )
 
+from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 
@@ -43,6 +44,7 @@ from .auth import (
 )
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.encoders import jsonable_encoder
+from starlette.background import BackgroundTask
 
 
 # ============================================================
@@ -600,6 +602,252 @@ def extract_pose_sequence(video_path, roi):
     }
 
 
+
+
+# ============================================================
+# SKELETON OVERLAY VIDEO GENERATION
+# ============================================================
+
+def draw_pose_skeleton(frame, landmarks, crop_box):
+    """Draw visible MediaPipe pose landmarks and connections on the full frame."""
+    crop_x1, crop_y1, crop_x2, crop_y2 = crop_box
+    crop_width = crop_x2 - crop_x1
+    crop_height = crop_y2 - crop_y1
+
+    if crop_width <= 0 or crop_height <= 0:
+        return frame
+
+    points = {}
+    for index, landmark in enumerate(landmarks):
+        if landmark.visibility >= LANDMARK_VISIBILITY_THRESHOLD:
+            px = int(crop_x1 + landmark.x * crop_width)
+            py = int(crop_y1 + landmark.y * crop_height)
+            points[index] = (px, py)
+
+    # Draw bones first so the joint markers remain visible.
+    for start_index, end_index in mp_pose.POSE_CONNECTIONS:
+        if start_index in points and end_index in points:
+            cv2.line(
+                frame,
+                points[start_index],
+                points[end_index],
+                (80, 220, 120),
+                3,
+                cv2.LINE_AA,
+            )
+
+    for point in points.values():
+        cv2.circle(frame, point, 5, (30, 180, 255), -1, cv2.LINE_AA)
+        cv2.circle(frame, point, 7, (255, 255, 255), 1, cv2.LINE_AA)
+
+    return frame
+
+
+def cleanup_overlay_file(path):
+    """Remove a generated overlay after FastAPI has finished sending it."""
+    Path(path).unlink(missing_ok=True)
+
+
+def generate_skeleton_overlay_video(video_path, roi, output_path):
+    """
+    Generate a playable video with a MediaPipe skeleton overlay.
+
+    Tracking and crop updates intentionally mirror extract_pose_sequence()
+    so the overlay follows the same manually selected player.
+    """
+    cap = cv2.VideoCapture(str(video_path))
+    if not cap.isOpened():
+        raise ValueError("Could not open this video.")
+
+    success, first_frame = cap.read()
+    if not success:
+        cap.release()
+        raise ValueError("Could not read the first frame of this video.")
+
+    frame_h, frame_w = first_frame.shape[:2]
+    roi_x, roi_y, roi_width, roi_height = roi
+
+    if not all(np.isfinite(value) for value in roi):
+        cap.release()
+        raise ValueError("Player selection contains invalid coordinates.")
+
+    if (
+        roi_x < 0 or roi_y < 0 or roi_width <= 0 or roi_height <= 0
+        or roi_x >= 1 or roi_y >= 1
+        or roi_x + roi_width > 1.000001
+        or roi_y + roi_height > 1.000001
+    ):
+        cap.release()
+        raise ValueError(
+            "Player selection is outside the video frame or has an invalid size."
+        )
+
+    x = int(round(roi_x * frame_w))
+    y = int(round(roi_y * frame_h))
+    w = int(round(roi_width * frame_w))
+    h = int(round(roi_height * frame_h))
+    x1, y1, x2, y2 = clip_box(x, y, w, h, frame_w, frame_h)
+    x, y, w, h = x1, y1, x2 - x1, y2 - y1
+
+    if w < 2 or h < 2:
+        cap.release()
+        raise ValueError(
+            "Player selection is too small. Draw a larger box around the player."
+        )
+
+    tracker = create_tracker()
+    tracker_initialised = tracker.init(first_frame, (x, y, w, h))
+    if tracker_initialised is False:
+        cap.release()
+        raise RuntimeError("CSRT could not initialise with the selected player box.")
+
+    fps = cap.get(cv2.CAP_PROP_FPS)
+    if not np.isfinite(fps) or fps <= 0 or fps > 120:
+        fps = 30.0
+
+    # VP8/WebM is broadly supported by modern browsers. Fall back to MP4V
+    # if this OpenCV/FFmpeg build cannot create a WebM writer.
+    output_width = frame_w + (frame_w % 2)
+    output_height = frame_h + (frame_h % 2)
+    writer = None
+    output_extension = Path(output_path).suffix.lower()
+
+    if output_extension == ".webm":
+        for codec in ("VP80", "VP90"):
+            candidate = cv2.VideoWriter(
+                str(output_path),
+                cv2.VideoWriter_fourcc(*codec),
+                fps,
+                (output_width, output_height),
+            )
+            if candidate.isOpened():
+                writer = candidate
+                break
+            candidate.release()
+
+    if writer is None:
+        output_path = Path(output_path).with_suffix(".mp4")
+        writer = cv2.VideoWriter(
+            str(output_path),
+            cv2.VideoWriter_fourcc(*"mp4v"),
+            fps,
+            (output_width, output_height),
+        )
+
+    if not writer.isOpened():
+        cap.release()
+        writer.release()
+        raise RuntimeError(
+            "Could not create the annotated video. Check that OpenCV has FFmpeg video codec support."
+        )
+
+    frame_index = 0
+    pose_detections = 0
+
+    try:
+        with mp_pose.Pose(
+            static_image_mode=False,
+            model_complexity=2,
+            enable_segmentation=False,
+            min_detection_confidence=0.5,
+            min_tracking_confidence=0.5,
+        ) as pose:
+            frame = first_frame
+
+            while True:
+                if frame_index > 0:
+                    success, frame = cap.read()
+                    if not success:
+                        break
+
+                    tracking_ok, tracked = tracker.update(frame)
+                    if tracking_ok:
+                        x, y, w, h = map(int, tracked)
+
+                frame_h, frame_w = frame.shape[:2]
+                crop, crop_box = get_expanded_crop(frame, (x, y, w, h))
+                annotated_frame = frame.copy()
+
+                if crop.size > 0:
+                    rgb = cv2.cvtColor(crop, cv2.COLOR_BGR2RGB)
+                    result = pose.process(rgb)
+
+                    if result.pose_landmarks:
+                        pose_detections += 1
+                        landmarks = result.pose_landmarks.landmark
+
+                        annotated_frame = draw_pose_skeleton(
+                            annotated_frame,
+                            landmarks,
+                            crop_box,
+                        )
+
+                        pose_box = get_pose_box(
+                            landmarks,
+                            crop_box,
+                            frame_w,
+                            frame_h,
+                        )
+
+                        if pose_box is not None:
+                            updated_box = smooth_box(
+                                (x, y, w, h),
+                                pose_box,
+                            )
+                            bx, by, bx2, by2 = clip_box(
+                                updated_box[0],
+                                updated_box[1],
+                                updated_box[2],
+                                updated_box[3],
+                                frame_w,
+                                frame_h,
+                            )
+                            x, y = bx, by
+                            w, h = bx2 - bx, by2 - by
+
+                            tracker = create_tracker()
+                            tracker.init(frame, (x, y, w, h))
+
+                # Some WebM encoders require even frame dimensions.
+                if (
+                    annotated_frame.shape[1] != output_width
+                    or annotated_frame.shape[0] != output_height
+                ):
+                    annotated_frame = cv2.copyMakeBorder(
+                        annotated_frame,
+                        0,
+                        output_height - annotated_frame.shape[0],
+                        0,
+                        output_width - annotated_frame.shape[1],
+                        cv2.BORDER_CONSTANT,
+                        value=(0, 0, 0),
+                    )
+
+                writer.write(annotated_frame)
+                frame_index += 1
+
+    finally:
+        cap.release()
+        writer.release()
+
+    if frame_index == 0:
+        Path(output_path).unlink(missing_ok=True)
+        raise ValueError("No frames were processed for the skeleton overlay.")
+
+    if pose_detections == 0:
+        Path(output_path).unlink(missing_ok=True)
+        raise ValueError(
+            "MediaPipe could not detect the selected player. Try selecting the whole visible body more tightly."
+        )
+
+    return Path(output_path), {
+        "frame_count": frame_index,
+        "pose_detections": pose_detections,
+        "pose_detection_rate": round(pose_detections / frame_index, 4),
+        "codec": "webm" if Path(output_path).suffix.lower() == ".webm" else "mp4",
+    }
+
+
 # ============================================================
 # HEALTH CHECK
 # ============================================================
@@ -619,7 +867,8 @@ def health():
         "player_selection_method": "browser_manual_roi",
         "csrt_tracking_enabled": True,
         "expanded_crops_enabled": True,
-        "landmark_guided_tracking_enabled": True
+        "landmark_guided_tracking_enabled": True,
+        "skeleton_overlay_enabled": True
     }
 
 
@@ -791,6 +1040,115 @@ async def analyse_video(
     finally:
         if temp_path is not None:
             temp_path.unlink(missing_ok=True)
+        await file.close()
+
+
+
+
+# ============================================================
+# SKELETON OVERLAY API
+# ============================================================
+
+@app.post("/api/skeleton-overlay")
+async def create_skeleton_overlay(
+    file: UploadFile = File(...),
+    roi_x: float = Form(...),
+    roi_y: float = Form(...),
+    roi_width: float = Form(...),
+    roi_height: float = Form(...),
+):
+    """
+    Generate and return an annotated copy of the uploaded video.
+    The original upload and existing analysis records are not modified.
+    """
+    extension = Path(file.filename or "").suffix.lower()
+    if extension not in ALLOWED_EXTENSIONS:
+        raise HTTPException(
+            status_code=400,
+            detail="Unsupported video format. Use MP4, MOV, WEBM, AVI, or MKV.",
+        )
+
+    contents = await file.read(MAX_FILE_SIZE + 1)
+    if not contents:
+        raise HTTPException(status_code=400, detail="The video is empty.")
+    if len(contents) > MAX_FILE_SIZE:
+        raise HTTPException(
+            status_code=413,
+            detail="Video must be smaller than 200 MB.",
+        )
+
+    input_path = None
+    output_path = None
+
+    try:
+        with tempfile.NamedTemporaryFile(
+            suffix=extension,
+            delete=False,
+        ) as temp_file:
+            temp_file.write(contents)
+            input_path = Path(temp_file.name)
+
+        with tempfile.NamedTemporaryFile(
+            suffix=".webm",
+            delete=False,
+        ) as output_file:
+            output_path = Path(output_file.name)
+
+        output_path.unlink(missing_ok=True)
+
+        output_path, overlay_info = generate_skeleton_overlay_video(
+            input_path,
+            (roi_x, roi_y, roi_width, roi_height),
+            output_path,
+        )
+
+        media_type = (
+            "video/webm"
+            if output_path.suffix.lower() == ".webm"
+            else "video/mp4"
+        )
+        download_name = (
+            "skeleton_overlay.webm"
+            if media_type == "video/webm"
+            else "skeleton_overlay.mp4"
+        )
+
+        return FileResponse(
+            path=str(output_path),
+            media_type=media_type,
+            filename=download_name,
+            background=BackgroundTask(cleanup_overlay_file, output_path),
+            headers={
+                "X-Pose-Detections": str(overlay_info["pose_detections"]),
+                "X-Processed-Frames": str(overlay_info["frame_count"]),
+            },
+        )
+
+    except HTTPException:
+        if output_path is not None:
+            output_path.unlink(missing_ok=True)
+        raise
+    except ValueError as exc:
+        if output_path is not None:
+            output_path.unlink(missing_ok=True)
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except (OSError, RuntimeError) as exc:
+        if output_path is not None:
+            output_path.unlink(missing_ok=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Skeleton overlay generation failed: {exc}",
+        ) from exc
+    except Exception as exc:
+        if output_path is not None:
+            output_path.unlink(missing_ok=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Could not generate skeleton overlay: {exc}",
+        ) from exc
+    finally:
+        if input_path is not None:
+            input_path.unlink(missing_ok=True)
         await file.close()
 
 
@@ -1026,7 +1384,6 @@ def login_user(
         samesite=cookie_samesite,
         path="/",
     )
-    # Do not return the JWT to JavaScript; the browser stores the HTTP-only cookie.
     return {"message": "Login successful."}
 
 
