@@ -6,6 +6,8 @@ import sys
 import os
 import uuid
 import mimetypes
+import re
+import json
 
 import boto3
 
@@ -14,6 +16,7 @@ import mediapipe as mp
 import numpy as np
 
 from fastapi import (
+    Body,
     Response,
     FastAPI,
     File,
@@ -25,7 +28,7 @@ from fastapi import (
     Query,
 )
 
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 
@@ -1224,6 +1227,280 @@ def get_analysis_detail(
         "created_at": record.created_at,
         "result": record.result_data,
     }
+
+
+
+
+# ============================================================
+# DOWNLOADABLE ANALYSIS REPORT
+# ============================================================
+
+@app.post("/api/analyses/report")
+def download_analysis_report(
+    payload: dict = Body(...),
+    current_user: User = Depends(get_optional_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Generate a PDF report for either a saved analysis (analysis_id) or
+    the current unsaved result (analysis_data). Reports are generated on
+    demand and are not stored in the database.
+    """
+    from io import BytesIO
+    from xml.sax.saxutils import escape
+    from reportlab.lib import colors
+    from reportlab.lib.enums import TA_CENTER
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.lib.units import mm
+    from reportlab.platypus import (
+        SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle,
+        KeepTogether, HRFlowable
+    )
+
+    analysis_id = payload.get("analysis_id")
+    if analysis_id:
+        if current_user is None:
+            raise HTTPException(status_code=401, detail="Please log in to download a saved analysis report.")
+        try:
+            parsed_id = uuid.UUID(str(analysis_id))
+        except (ValueError, TypeError, AttributeError):
+            raise HTTPException(status_code=400, detail="Invalid analysis ID.")
+        record = (
+            db.query(Analysis)
+            .filter(
+                Analysis.id == parsed_id,
+                Analysis.user_id == current_user.id,
+            )
+            .first()
+        )
+        if record is None:
+            raise HTTPException(status_code=404, detail="Analysis not found.")
+        data = record.result_data or {}
+        created_at = record.created_at
+        filename = record.video_filename or data.get("filename") or "Badminton video"
+        stroke_type = record.stroke_type or data.get("selected_stroke_type") or "Not specified"
+    else:
+        data = payload.get("analysis_data")
+        if not isinstance(data, dict):
+            raise HTTPException(status_code=400, detail="Analysis data is required.")
+        if len(jsonable_encoder(data).__str__()) > 2_000_000:
+            raise HTTPException(status_code=413, detail="Analysis report data is too large.")
+        created_at = datetime.now(timezone.utc)
+        filename = data.get("filename") or "Badminton video"
+        stroke_type = data.get("selected_stroke_type") or "Not specified"
+
+    form = data.get("form_analysis") or {}
+    video = data.get("video_info") or {}
+    detail = form.get("detailed_feedback") or {}
+
+    def safe(value):
+        if value is None:
+            return "Not available"
+        if isinstance(value, (dict, list)):
+            value = json.dumps(value, ensure_ascii=False, default=str)
+        return escape(str(value))
+
+    def number(value, digits=2, suffix=""):
+        try:
+            return f"{float(value):.{digits}f}{suffix}"
+        except (TypeError, ValueError):
+            return "Not available"
+
+    buffer = BytesIO()
+    doc = SimpleDocTemplate(
+        buffer, pagesize=A4, rightMargin=18*mm, leftMargin=18*mm,
+        topMargin=17*mm, bottomMargin=17*mm,
+        title="Rally Badminton Analytics - Analysis Report",
+        author="Rally Badminton Analytics",
+    )
+    styles = getSampleStyleSheet()
+    styles.add(ParagraphStyle(
+        name="ReportTitle", parent=styles["Title"], fontName="Helvetica-Bold",
+        fontSize=20, leading=25, textColor=colors.HexColor("#14213d"),
+        alignment=TA_CENTER, spaceAfter=5,
+    ))
+    styles.add(ParagraphStyle(
+        name="ReportSub", parent=styles["Normal"], fontSize=9,
+        textColor=colors.HexColor("#64748b"), alignment=TA_CENTER, spaceAfter=14,
+    ))
+    styles.add(ParagraphStyle(
+        name="SectionHead", parent=styles["Heading2"], fontSize=12,
+        leading=15, textColor=colors.HexColor("#14213d"),
+        spaceBefore=12, spaceAfter=7,
+    ))
+    styles.add(ParagraphStyle(
+        name="SmallBody", parent=styles["BodyText"], fontSize=8.5,
+        leading=12, spaceAfter=4,
+    ))
+    styles.add(ParagraphStyle(
+        name="Cell", parent=styles["BodyText"], fontSize=8,
+        leading=10, spaceAfter=0,
+    ))
+
+    story = [
+        Paragraph("RALLY BADMINTON ANALYTICS", styles["ReportTitle"]),
+        Paragraph("BADMINTON STROKE ANALYSIS REPORT", styles["ReportSub"]),
+        HRFlowable(width="100%", thickness=1, color=colors.HexColor("#dbe3ee")),
+        Spacer(1, 8),
+        Paragraph("Analysis information", styles["SectionHead"]),
+    ]
+    created_text = created_at.strftime("%d %B %Y, %H:%M UTC") if hasattr(created_at, "strftime") else str(created_at)
+    metadata = [
+        ["Video filename", safe(filename)],
+        ["Analysis date", safe(created_text)],
+        ["Selected stroke", safe(stroke_type)],
+        ["Evaluation method", safe(data.get("evaluation_method", "LSTM Autoencoder"))],
+    ]
+    table = Table(metadata, colWidths=[42*mm, 130*mm])
+    table.setStyle(TableStyle([
+        ("BACKGROUND", (0,0), (0,-1), colors.HexColor("#f1f5f9")),
+        ("TEXTCOLOR", (0,0), (-1,-1), colors.HexColor("#243247")),
+        ("FONTNAME", (0,0), (0,-1), "Helvetica-Bold"),
+        ("FONTNAME", (1,0), (-1,-1), "Helvetica"),
+        ("FONTSIZE", (0,0), (-1,-1), 8),
+        ("GRID", (0,0), (-1,-1), .35, colors.HexColor("#dbe3ee")),
+        ("VALIGN", (0,0), (-1,-1), "TOP"),
+        ("LEFTPADDING", (0,0), (-1,-1), 7),
+        ("RIGHTPADDING", (0,0), (-1,-1), 7),
+        ("TOPPADDING", (0,0), (-1,-1), 6),
+        ("BOTTOMPADDING", (0,0), (-1,-1), 6),
+    ]))
+    story.append(table)
+
+    story.append(Paragraph("Stroke form evaluation", styles["SectionHead"]))
+    metrics = [
+        ["Overall form score", number(form.get("form_score")) + " / 100"],
+        ["Form rating", safe(form.get("form_rating"))],
+        ["Biomechanical score", number(form.get("biomechanical_score")) + " / 100"],
+        ["Temporal similarity", number(form.get("temporal_similarity_score")) + " / 100"],
+        ["Reconstruction error", number(form.get("reconstruction_error"), 6)],
+    ]
+    metric_table = Table(metrics, colWidths=[75*mm, 97*mm])
+    metric_table.setStyle(TableStyle([
+        ("BACKGROUND", (0,0), (0,-1), colors.HexColor("#f1f5f9")),
+        ("GRID", (0,0), (-1,-1), .35, colors.HexColor("#dbe3ee")),
+        ("FONTNAME", (0,0), (0,-1), "Helvetica-Bold"),
+        ("FONTSIZE", (0,0), (-1,-1), 8.5),
+        ("LEFTPADDING", (0,0), (-1,-1), 7),
+        ("TOPPADDING", (0,0), (-1,-1), 6),
+        ("BOTTOMPADDING", (0,0), (-1,-1), 6),
+    ]))
+    story.append(metric_table)
+
+    story.append(Paragraph("Video processing information", styles["SectionHead"]))
+    video_rows = [
+        ["Frames processed", safe(video.get("frame_count"))],
+        ["Pose detection rate", number(float(video.get("pose_detection_rate", 0))*100, 1, "%") if video.get("pose_detection_rate") is not None else "Not available"],
+        ["Average landmark visibility", number(float(video.get("visibility_mean", 0))*100, 1, "%") if video.get("visibility_mean") is not None else "Not available"],
+        ["Tracker failures", safe(video.get("tracker_failures"))],
+    ]
+    video_table = Table(video_rows, colWidths=[75*mm, 97*mm])
+    video_table.setStyle(TableStyle([
+        ("BACKGROUND", (0,0), (0,-1), colors.HexColor("#f1f5f9")),
+        ("GRID", (0,0), (-1,-1), .35, colors.HexColor("#dbe3ee")),
+        ("FONTNAME", (0,0), (0,-1), "Helvetica-Bold"),
+        ("FONTSIZE", (0,0), (-1,-1), 8.5),
+        ("LEFTPADDING", (0,0), (-1,-1), 7),
+        ("TOPPADDING", (0,0), (-1,-1), 6),
+        ("BOTTOMPADDING", (0,0), (-1,-1), 6),
+    ]))
+    story.append(video_table)
+
+    if data.get("warning"):
+        story.extend([
+            Paragraph("Analysis notice", styles["SectionHead"]),
+            Paragraph(safe(data.get("warning")), styles["SmallBody"]),
+        ])
+
+    for section_key, section_title in [
+        ("interpretation", "Evaluation interpretation"),
+        ("score_interpretation", "Score interpretation"),
+    ]:
+        value = detail.get(section_key) or form.get(section_key)
+        if value:
+            story.extend([
+                Paragraph(section_title, styles["SectionHead"]),
+                Paragraph(safe(value), styles["SmallBody"]),
+            ])
+
+    for list_key, title in [
+        ("strengths", "Identified strengths"),
+        ("areas_to_review", "Areas to review"),
+    ]:
+        items = detail.get(list_key)
+        if isinstance(items, list) and items:
+            story.append(Paragraph(title, styles["SectionHead"]))
+            for item in items:
+                if isinstance(item, dict):
+                    label = item.get("feature") or item.get("name") or item.get("title") or "Observation"
+                    desc = item.get("interpretation") or item.get("description") or item.get("message")
+                    deviation = item.get("deviation")
+                    line = f"<b>{safe(label)}</b>"
+                    if desc:
+                        line += f" — {safe(desc)}"
+                    if deviation is not None:
+                        line += f" (deviation: {safe(deviation)})"
+                else:
+                    line = safe(item)
+                story.append(Paragraph("• " + line, styles["SmallBody"]))
+
+    measurements = detail.get("all_measurements")
+    if not isinstance(measurements, list):
+        measurements = []
+        for key in ("joint_angles", "torso_alignment", "elbow_angle_changes",
+                    "angular_velocity", "angular_acceleration", "movement_timing"):
+            values = detail.get(key)
+            if isinstance(values, list):
+                measurements.extend(values)
+    if measurements:
+        story.append(Paragraph("Detailed movement measurements", styles["SectionHead"]))
+        measurement_rows = [["Measurement", "Observed value", "Reference / notes"]]
+        for item in measurements[:60]:
+            if isinstance(item, dict):
+                measurement_rows.append([
+                    Paragraph(safe(item.get("feature") or item.get("name") or item.get("metric") or "Measurement"), styles["Cell"]),
+                    Paragraph(safe(item.get("value") if item.get("value") is not None else item.get("observed_value")), styles["Cell"]),
+                    Paragraph(safe(item.get("interpretation") or item.get("reference") or item.get("description")), styles["Cell"]),
+                ])
+            else:
+                measurement_rows.append([Paragraph(safe(item), styles["Cell"]), "", ""])
+        mt = Table(measurement_rows, colWidths=[48*mm, 34*mm, 90*mm], repeatRows=1)
+        mt.setStyle(TableStyle([
+            ("BACKGROUND", (0,0), (-1,0), colors.HexColor("#e8eef6")),
+            ("FONTNAME", (0,0), (-1,0), "Helvetica-Bold"),
+            ("GRID", (0,0), (-1,-1), .3, colors.HexColor("#dbe3ee")),
+            ("VALIGN", (0,0), (-1,-1), "TOP"),
+            ("FONTSIZE", (0,0), (-1,-1), 7.5),
+            ("LEFTPADDING", (0,0), (-1,-1), 5),
+            ("RIGHTPADDING", (0,0), (-1,-1), 5),
+            ("TOPPADDING", (0,0), (-1,-1), 5),
+            ("BOTTOMPADDING", (0,0), (-1,-1), 5),
+        ]))
+        story.append(mt)
+
+    story.extend([
+        Spacer(1, 14),
+        HRFlowable(width="100%", thickness=.5, color=colors.HexColor("#dbe3ee")),
+        Spacer(1, 5),
+        Paragraph(
+            "This report presents the results returned by Rally Badminton Analytics. "
+            "The selected stroke is the reference category chosen for this analysis; "
+            "it is not a separately reported stroke-classification confidence score.",
+            styles["SmallBody"],
+        ),
+    ])
+
+    doc.build(story)
+    buffer.seek(0)
+    safe_stroke = re.sub(r"[^A-Za-z0-9_-]+", "_", str(stroke_type)).strip("_") or "analysis"
+    report_name = f"rally_{safe_stroke}_report.pdf"
+    return StreamingResponse(
+        buffer,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{report_name}"'},
+    )
+
 
 
 @app.get("/api/analyses/{analysis_id}/video")

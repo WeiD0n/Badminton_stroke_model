@@ -4345,3 +4345,59 @@ h1 > span {
   }
 
 }
+
+/* Downloadable analysis report */
+
+.report-download-row {
+
+  display: flex;
+
+  flex-direction: column;
+
+  align-items: flex-start;
+
+  gap: 8px;
+
+  margin: 16px 0 18px;
+
+}
+
+.report-download-button {
+
+  display: inline-flex;
+
+  align-items: center;
+
+  justify-content: center;
+
+  gap: 10px;
+
+}
+
+.report-download-button:disabled {
+
+  cursor: wait;
+
+  opacity: 0.65;
+
+}
+
+.report-download-error {
+
+  margin: 0;
+
+  color: #ff9b9b;
+
+  font-size: 0.88rem;
+
+}
+
+.history-detail-actions {
+
+  display: flex;
+
+  align-items: center;
+
+  gap: 14px;
+
+}

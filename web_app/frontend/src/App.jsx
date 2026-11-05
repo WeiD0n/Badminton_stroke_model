@@ -21,6 +21,8 @@ function App() {
   const [showTechnicalBreakdown, setShowTechnicalBreakdown] = useState(false)
   const [skeletonOverlayUrl, setSkeletonOverlayUrl] = useState('')
   const [isSkeletonOverlayLoading, setIsSkeletonOverlayLoading] = useState(false)
+  const [isReportLoading, setIsReportLoading] = useState(false)
+  const [reportError, setReportError] = useState('')
   const [skeletonOverlayError, setSkeletonOverlayError] = useState('')
   const [skeletonOverlayInfo, setSkeletonOverlayInfo] = useState(null)
   const [selectedRoi, setSelectedRoi] = useState(null)
@@ -436,6 +438,50 @@ function App() {
   function clearRoi() {
     setSelectedRoi(null)
     setMessage('Draw a selection box around the player before starting analysis.')
+  }
+
+
+  async function downloadAnalysisReport(analysisData = null, analysisId = null) {
+    setIsReportLoading(true)
+    setReportError('')
+
+    try {
+      const payload = analysisId
+        ? { analysis_id: analysisId }
+        : { analysis_data: analysisData }
+
+      const response = await fetch(`${API_URL}/api/analyses/report`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}))
+        throw new Error(errorData.detail || 'Could not generate the analysis report.')
+      }
+
+      const blob = await response.blob()
+      if (!blob.size || (blob.type && !blob.type.includes('pdf'))) {
+        throw new Error('The server did not return a valid PDF report.')
+      }
+
+      const objectUrl = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      const stroke = analysisData?.selected_stroke_type || selectedHistory?.stroke_type || 'analysis'
+      const safeStroke = String(stroke).toLowerCase().replace(/[^a-z0-9_-]+/g, '_')
+      link.href = objectUrl
+      link.download = `rally_${safeStroke || 'analysis'}_report.pdf`
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+      URL.revokeObjectURL(objectUrl)
+    } catch (error) {
+      setReportError(error.message || 'Could not download the analysis report.')
+    } finally {
+      setIsReportLoading(false)
+    }
   }
 
   async function generateSkeletonOverlay() {
@@ -1135,6 +1181,22 @@ function App() {
                       <span className="muted-tag">COMPLETED</span>
                     </div>
 
+                    <div className="report-download-row">
+                      <button
+                        type="button"
+                        className="secondary-button report-download-button"
+                        onClick={() => downloadAnalysisReport(
+                          analysisResult,
+                          analysisResult.analysis_id || null
+                        )}
+                        disabled={isReportLoading}
+                      >
+                        {isReportLoading ? 'Preparing PDF…' : 'Download analysis report'}
+                        {!isReportLoading && <span aria-hidden="true">↓</span>}
+                      </button>
+                      {reportError && <p className="report-download-error" role="alert">{reportError}</p>}
+                    </div>
+
                     {analysisResult.warning && (
                       <div className="notice" role="status">
                         {analysisResult.warning}
@@ -1692,8 +1754,22 @@ function App() {
                   <section className="panel history-detail">
                     <div className="panel-heading">
                       <div><p className="eyebrow">SAVED EVALUATION</p><h2>Analysis details</h2></div>
-                      <button className="text-button" onClick={() => setSelectedHistory(null)}>Close</button>
+                      <div className="history-detail-actions">
+                        <button
+                          type="button"
+                          className="secondary-button report-download-button"
+                          onClick={() => downloadAnalysisReport(
+                            selectedHistory.result ?? selectedHistory,
+                            selectedHistory.id || null
+                          )}
+                          disabled={isReportLoading}
+                        >
+                          {isReportLoading ? 'Preparing PDF…' : 'Download report'}
+                        </button>
+                        <button className="text-button" onClick={() => setSelectedHistory(null)}>Close</button>
+                      </div>
                     </div>
+                    {reportError && <p className="report-download-error" role="alert">{reportError}</p>}
                     <pre>{JSON.stringify(selectedHistory.result ?? selectedHistory, null, 2)}</pre>
                   </section>
                 )}
