@@ -9,8 +9,8 @@ from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
 
-from database import get_db
-from models import User
+from .database import get_db
+from .models import User
 
 load_dotenv()
 

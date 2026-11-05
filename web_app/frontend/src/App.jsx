@@ -18,6 +18,7 @@ function App() {
   const [isDragging, setIsDragging] = useState(false)
   const [isAnalysing, setIsAnalysing] = useState(false)
   const [analysisResult, setAnalysisResult] = useState(null)
+  const [showTechnicalBreakdown, setShowTechnicalBreakdown] = useState(false)
   const [selectedRoi, setSelectedRoi] = useState(null)
   const [isDrawingRoi, setIsDrawingRoi] = useState(false)
   const roiStartRef = useRef(null)
@@ -1121,58 +1122,236 @@ function App() {
                       <strong>{analysisResult.video_info?.tracker_failures ?? '—'}</strong>
                     </div>
 
-                    <section className="form-analysis-section">
-                      <div className="panel-heading">
-                        <div>
-                          <p className="eyebrow">MOVEMENT DEVIATIONS</p>
-                          <h2>Top feature deviations</h2>
-                        </div>
-                      </div>
+                    {(() => {
+                      const detail = analysisResult.form_analysis?.detailed_feedback || {}
+                      const measurements = Array.isArray(detail.all_measurements)
+                        ? detail.all_measurements
+                        : [
+                            ...(detail.joint_angles || []),
+                            ...(detail.torso_alignment || []),
+                            ...(detail.elbow_angle_changes || []),
+                            ...(detail.angular_velocity || []),
+                            ...(detail.angular_acceleration || []),
+                            ...(detail.movement_timing || []),
+                          ]
 
-                      {analysisResult.form_analysis?.top_feature_deviations?.length > 0 ? (
-                        <div className="deviation-list">
-                          {analysisResult.form_analysis.top_feature_deviations.map((item, index) => (
-                            <article className="deviation-row" key={`${item.feature}-${index}`}>
-                              <div>
-                                <strong>{item.feature}</strong>
-                                <small>Deviation from the reference profile</small>
+                      const reviewItems = Array.isArray(detail.areas_to_review)
+                        ? detail.areas_to_review
+                        : []
+
+                      const getFriendlyFeedback = (item) => {
+                        const feature = String(item.feature || '').toLowerCase()
+                        if (feature.includes('peak-angle timing')) {
+                          if (feature.includes('elbow')) {
+                            return {
+                              title: 'Improve your arm timing',
+                              message: `Your ${feature.includes('left') ? 'left' : 'right'} arm reaches its peak position a little too late. Try to coordinate your arm movement earlier.`,
+                            }
+                          }
+                          if (feature.includes('shoulder')) {
+                            return {
+                              title: 'Improve your shoulder timing',
+                              message: `Your ${feature.includes('left') ? 'left' : 'right'} shoulder reaches its peak position a little too late. Try to coordinate your shoulder movement earlier.`,
+                            }
+                          }
+                          if (feature.includes('hip')) {
+                            return {
+                              title: 'Work on your hip movement',
+                              message: `Your ${feature.includes('left') ? 'left' : 'right'} hip movement happens a little too late. Focus on coordinating your body rotation with your swing.`,
+                            }
+                          }
+                          if (feature.includes('knee')) {
+                            return {
+                              title: 'Improve your leg timing',
+                              message: `Your ${feature.includes('left') ? 'left' : 'right'} leg reaches its peak position a little too late. Try to coordinate your leg movement with your swing.`,
+                            }
+                          }
+                        }
+                        if (feature.includes('angular-velocity') || feature.includes('angular velocity')) {
+                          return {
+                            title: 'Work on your swing timing',
+                            message: `Your ${feature.includes('left') ? 'left' : 'right'} arm movement speed differs from the movement pattern detected. Practise a smooth, controlled swing.`,
+                          }
+                        }
+                        if (feature.includes('torso') || feature.includes('lean')) {
+                          return {
+                            title: 'Improve your body balance',
+                            message: 'Your upper body leans more to one side during the movement. Focus on staying balanced as you prepare and swing.',
+                          }
+                        }
+                        if (feature.includes('knee') || feature.includes('leg')) {
+                          return {
+                            title: 'Work on your leg positioning',
+                            message: 'Pay attention to your leg position during the stroke and try to keep your movement controlled and balanced.',
+                          }
+                        }
+                        if (feature.includes('hip')) {
+                          return {
+                            title: 'Work on your hip movement',
+                            message: 'Focus on coordinating your hip movement with your upper body as you swing.',
+                          }
+                        }
+                        if (feature.includes('elbow') || feature.includes('shoulder') || feature.includes('arm')) {
+                          return {
+                            title: 'Work on your arm positioning',
+                            message: 'Pay attention to your arm position throughout the swing and practise moving smoothly.',
+                          }
+                        }
+                        return {
+                          title: 'Keep practising this movement',
+                          message: 'Focus on performing this part of the stroke smoothly and with control.',
+                        }
+                      }
+
+                      const improvementItems = reviewItems
+                        .slice()
+                        .sort((a, b) => Number(b.deviation || 0) - Number(a.deviation || 0))
+                        .slice(0, 3)
+                        .map(getFriendlyFeedback)
+
+                      const strengthFeatures = (Array.isArray(detail.strengths) ? detail.strengths : [])
+                        .map((item) => String(item.feature || '').toLowerCase())
+                      const hasArmStrength = strengthFeatures.some((feature) =>
+                        feature.includes('elbow') || feature.includes('shoulder')
+                      )
+                      const hasLegStrength = strengthFeatures.some((feature) =>
+                        feature.includes('hip') || feature.includes('knee')
+                      )
+                      const hasTorsoStrength = strengthFeatures.some((feature) =>
+                        feature.includes('torso')
+                      )
+
+                      const strengths = []
+                      if (hasArmStrength) {
+                        strengths.push({
+                          title: 'Good arm positioning',
+                          message: 'Your arm positioning is looking good. Keep it up!',
+                        })
+                      }
+                      if (hasLegStrength) {
+                        strengths.push({
+                          title: 'Good lower-body positioning',
+                          message: 'Your hip and leg positioning are looking good. Keep working on it!',
+                        })
+                      }
+                      if (hasTorsoStrength) {
+                        strengths.push({
+                          title: 'Good body control',
+                          message: 'Your body posture is staying close to the movement pattern. Keep it up!',
+                        })
+                      }
+                      const visibleStrengths = strengths.slice(0, 2)
+
+                      let trainingTip = 'Practise your stroke slowly and focus on smooth, controlled movements before increasing your speed.'
+                      if (improvementItems.some((item) => /timing|hip movement|leg timing/i.test(item.title))) {
+                        trainingTip = 'Practise your overhead swing slowly, focusing on coordinating your arm and body movement before increasing your speed.'
+                      } else if (improvementItems.some((item) => /balance|positioning/i.test(item.title))) {
+                        trainingTip = 'Practise the movement at a comfortable pace. Keep your body balanced and your movements controlled throughout the stroke.'
+                      }
+
+                      return (
+                        <section className="form-analysis-section player-feedback-section">
+                          <div className="panel-heading">
+                            <div>
+                              <p className="eyebrow">PERSONALISED OBSERVATIONS</p>
+                              <h2>Your movement feedback</h2>
+                              <p className="detailed-feedback-intro">Simple tips to help you understand and improve your stroke.</p>
+                            </div>
+                          </div>
+
+                          {visibleStrengths.length > 0 && (
+                            <div className="player-feedback-group">
+                              <h3 className="player-feedback-heading strength-heading">✓ What you're doing well</h3>
+                              <div className="player-feedback-grid">
+                                {visibleStrengths.map((item, index) => (
+                                  <article className="player-feedback-card strength-card" key={`strength-${index}`}>
+                                    <strong>{item.title}</strong>
+                                    <p>{item.message}</p>
+                                  </article>
+                                ))}
                               </div>
-                              <span>{Number(item.deviation).toFixed(2)}</span>
-                            </article>
-                          ))}
-                        </div>
-                      ) : (
-                        <p className="form-analysis-intro">
-                          No feature deviations were returned.
-                        </p>
-                      )}
-                    </section>
+                            </div>
+                          )}
 
-                    <section className="form-analysis-section">
-                      <div className="panel-heading">
-                        <div>
-                          <p className="eyebrow">PERSONALISED OBSERVATIONS</p>
-                          <h2>Form feedback</h2>
-                        </div>
-                      </div>
+                          <div className="player-feedback-group">
+                            <h3 className="player-feedback-heading improve-heading">◎ What to improve</h3>
+                            {improvementItems.length > 0 ? (
+                              <div className="player-feedback-grid">
+                                {improvementItems.map((item, index) => (
+                                  <article className="player-feedback-card improve-card" key={`improve-${index}`}>
+                                    <strong>{item.title}</strong>
+                                    <p>{item.message}</p>
+                                  </article>
+                                ))}
+                              </div>
+                            ) : (
+                              <article className="player-feedback-card strength-card">
+                                <strong>Keep up the good work</strong>
+                                <p>No major movement areas were flagged in this analysis. Keep practising to build consistency.</p>
+                              </article>
+                            )}
+                          </div>
 
-                      {analysisResult.form_analysis?.feedback?.length > 0 ? (
-                        <div className="form-feedback-list">
-                          {analysisResult.form_analysis.feedback.map((item, index) => (
-                            <article className="form-feedback-card" key={`${item}-${index}`}>
-                              <span className="form-feedback-category">
-                                Observation {String(index + 1).padStart(2, '0')}
+                          <div className="player-training-tip">
+                            <span className="training-tip-icon">✦</span>
+                            <div>
+                              <strong>Training tip</strong>
+                              <p>{trainingTip}</p>
+                            </div>
+                          </div>
+
+                          <div className="technical-breakdown">
+                            <button
+                              type="button"
+                              className="technical-breakdown-toggle"
+                              onClick={() => setShowTechnicalBreakdown((current) => !current)}
+                              aria-expanded={showTechnicalBreakdown}
+                            >
+                              <span>
+                                <strong>View technical breakdown</strong>
+                                <small>Joint angles, movement timing and other measurements</small>
                               </span>
-                              <p>{item}</p>
-                            </article>
-                          ))}
-                        </div>
-                      ) : (
-                        <p className="form-analysis-intro">
-                          No additional feedback was generated for this video.
-                        </p>
-                      )}
-                    </section>
+                              <span className="technical-breakdown-chevron">{showTechnicalBreakdown ? '−' : '+'}</span>
+                            </button>
+
+                            {showTechnicalBreakdown && (
+                              <div className="technical-breakdown-content">
+                                {detail.summary && <p className="detailed-feedback-summary">{detail.summary}</p>}
+                                {measurements.length > 0 ? (
+                                  <div className="detailed-feedback-grid">
+                                    {measurements.map((measurement, index) => {
+                                      const label = measurement.name || measurement.feature || measurement.metric || measurement.label || `Measurement ${index + 1}`
+                                      const value = measurement.value ?? measurement.player_value ?? measurement.actual_value
+                                      const reference = measurement.reference ?? measurement.reference_value ?? measurement.target_value
+                                      const deviation = measurement.deviation ?? measurement.z_score ?? measurement.difference
+                                      const unit = measurement.unit || ''
+                                      const status = measurement.status_label || measurement.status || measurement.level || measurement.rating
+                                      return (
+                                        <article className="detailed-feedback-card" key={`${label}-${index}`}>
+                                          <div className="detailed-feedback-card-top">
+                                            <strong>{String(label).replaceAll('_', ' ')}</strong>
+                                            {status && <span className="detailed-feedback-status">{String(status).replaceAll('_', ' ')}</span>}
+                                          </div>
+                                          <div className="detailed-feedback-values">
+                                            <span><small>Your measurement</small><strong>{value == null ? '—' : `${value} ${unit}`}</strong></span>
+                                            <span><small>Comparison value</small><strong>{reference == null ? '—' : `${reference} ${unit}`}</strong></span>
+                                            <span><small>Deviation</small><strong>{deviation == null ? '—' : Number.isFinite(Number(deviation)) ? Number(deviation).toFixed(3) : String(deviation)}</strong></span>
+                                          </div>
+                                          {measurement.explanation && <p className="detailed-feedback-note">{measurement.explanation}</p>}
+                                        </article>
+                                      )
+                                    })}
+                                  </div>
+                                ) : (
+                                  <p className="form-analysis-intro">Detailed measurement data was not included in this response.</p>
+                                )}
+                                {detail.interpretation && <p className="detailed-feedback-summary">{detail.interpretation}</p>}
+                              </div>
+                            )}
+                          </div>
+                        </section>
+                      )
+                    })()}
 
                     <p className="result-disclaimer">
                       {analysisResult.form_analysis?.score_interpretation ||

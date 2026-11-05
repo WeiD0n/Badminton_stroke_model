@@ -1,17 +1,21 @@
 
 import os
+from pathlib import Path
 
 from dotenv import load_dotenv
 from sqlalchemy import create_engine
 from sqlalchemy.orm import declarative_base, sessionmaker
 
-# Load environment variables
-load_dotenv()
+# Locate web_app/.env explicitly
+ENV_FILE = Path(__file__).resolve().parent / ".env"
+load_dotenv(dotenv_path=ENV_FILE)
 
 DATABASE_URL = os.getenv("DATABASE_URL")
 
 if not DATABASE_URL:
-    raise RuntimeError("DATABASE_URL is missing from the .env file.")
+    raise RuntimeError(
+        f"DATABASE_URL is missing. Check your environment file: {ENV_FILE}"
+    )
 
 # Ensure SQLAlchemy uses psycopg 3
 if DATABASE_URL.startswith("postgresql://"):
@@ -21,28 +25,23 @@ if DATABASE_URL.startswith("postgresql://"):
         1
     )
 
-# PostgreSQL connection
 engine = create_engine(
     DATABASE_URL,
     pool_pre_ping=True,
     connect_args={"connect_timeout": 15}
 )
 
-# Database sessions
 SessionLocal = sessionmaker(
     autocommit=False,
     autoflush=False,
     bind=engine
 )
 
-# Base class for database models
 Base = declarative_base()
 
 
-# Dependency for FastAPI endpoints
 def get_db():
     db = SessionLocal()
-
     try:
         yield db
     finally:

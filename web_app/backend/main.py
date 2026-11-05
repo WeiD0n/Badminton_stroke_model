@@ -28,11 +28,11 @@ from fastapi import (
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 
-from database import get_db
-from models import User, Analysis
-from schemas import UserRegister, UserLogin, UserResponse, TokenResponse
+from .database import get_db
+from .models import User, Analysis
+from .schemas import UserRegister, UserLogin, UserResponse, TokenResponse
 
-from auth import (
+from .auth import (
     hash_password,
     verify_password,
     create_access_token,
