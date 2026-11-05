@@ -78,6 +78,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from training.evaluate_form import evaluate_form
+from .stroke_classifier import predict_stroke
 
 
 CLASSES = ["Clear", "Drop Shot", "Smash"]
@@ -860,7 +861,10 @@ def health():
 
     return {
         "status": "ok",
-        "evaluation_method": "LSTM Autoencoder",
+        "evaluation_method": "LSTM Classifier + LSTM Autoencoder",
+        "stroke_classification_enabled": True,
+        "classification_model": "run_059",
+        "classification_input_shape": [TARGET_FRAMES, 139],
         "autoencoder_evaluation_enabled": True,
         "reference_profiles_enabled": True,
         "input_shape": [TARGET_FRAMES, 99],
@@ -935,6 +939,13 @@ async def analyse_video(
                 f"Expected pose sequence shape ({TARGET_FRAMES}, 99), got {sequence.shape}"
             )
 
+        # Objective 2: predict the stroke independently with the run-059 LSTM classifier.
+        # Its preprocessing uses the same 30x99 pose sequence, then derives
+        # 12 biomechanical + 28 temporal features and applies run-059 statistics.
+        classification = predict_stroke(sequence, PROJECT_ROOT)
+
+        # Objective 3: retain the user's selected stroke as the reference class
+        # for the existing autoencoder form-evaluation workflow.
         autoencoder_class = STROKE_CLASS_MAP[stroke_type]
         form_analysis = evaluate_form(
             pose_sequence=sequence,
@@ -953,6 +964,10 @@ async def analyse_video(
             "evaluation_method": "LSTM Autoencoder",
             "filename": file.filename,
             "selected_stroke_type": stroke_type,
+            "classification": classification,
+            "classification_matches_selected_stroke": (
+                classification["predicted_class"] == STROKE_CLASS_MAP[stroke_type]
+            ),
             "video_info": video_info,
             "form_analysis": form_analysis,
             "warning": warning,

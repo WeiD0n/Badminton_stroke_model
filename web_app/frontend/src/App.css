@@ -4461,3 +4461,12 @@ h1 > span {
 .comparison-filter-row { display: flex; align-items: center; gap: 12px; margin: 0 0 14px; }
 .comparison-filter-row label { color: var(--muted); font-size: 11px; }
 .comparison-filter-row select { min-width: 150px; padding: 9px 12px; border: 1px solid var(--border); border-radius: 8px; background: #101b2e; color: #edf4ff; font: inherit; font-size: 11px; }
+
+.classification-results { margin-bottom: 18px; }
+.classification-probabilities { display: grid; gap: 13px; margin: 20px 0; }
+.classification-probabilities h3 { margin: 0 0 2px; font-size: 0.98rem; }
+.classification-probability-row { display: grid; gap: 7px; }
+.classification-probability-heading { display: flex; justify-content: space-between; gap: 12px; font-size: 0.9rem; }
+.classification-probability-track { height: 9px; overflow: hidden; border-radius: 999px; background: var(--surface-muted, #e9edf2); }
+.classification-probability-track span { display: block; height: 100%; border-radius: inherit; background: var(--accent, #3977d5); }
+.classification-note { margin: 14px 0 0; color: var(--text-muted, #687386); font-size: 0.8rem; line-height: 1.5; }

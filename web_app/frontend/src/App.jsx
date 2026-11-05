@@ -10,23 +10,7 @@ const strokeTypes = [
 ]
 
 function App() {
-  // Restore the last visited page after a browser refresh in the same tab.
-  const [page, setPage] = useState(() => {
-    const validPages = [
-      'Dashboard',
-      'Analyse Stroke',
-      'History',
-      'Compare Analyses',
-      'Account',
-    ]
-
-    try {
-      const savedPage = sessionStorage.getItem('rally_active_page')
-      return validPages.includes(savedPage) ? savedPage : 'Dashboard'
-    } catch {
-      return 'Dashboard'
-    }
-  })
+  const [page, setPage] = useState('Dashboard')
   const [video, setVideo] = useState(null)
   const [videoUrl, setVideoUrl] = useState('')
   const [message, setMessage] = useState('')
@@ -37,8 +21,6 @@ function App() {
   const [showTechnicalBreakdown, setShowTechnicalBreakdown] = useState(false)
   const [skeletonOverlayUrl, setSkeletonOverlayUrl] = useState('')
   const [isSkeletonOverlayLoading, setIsSkeletonOverlayLoading] = useState(false)
-  const [isReportLoading, setIsReportLoading] = useState(false)
-  const [reportError, setReportError] = useState('')
   const [skeletonOverlayError, setSkeletonOverlayError] = useState('')
   const [skeletonOverlayInfo, setSkeletonOverlayInfo] = useState(null)
   const [selectedRoi, setSelectedRoi] = useState(null)
@@ -54,17 +36,6 @@ function App() {
   const [historyVideo, setHistoryVideo] = useState(null)
   const [isHistoryVideoLoading, setIsHistoryVideoLoading] = useState(false)
   const [historyVideoError, setHistoryVideoError] = useState('')
-  // Keep selected comparison sessions when the user refreshes the page.
-  const [comparisonIds, setComparisonIds] = useState(() => {
-    try {
-      const savedIds = JSON.parse(sessionStorage.getItem('rally_comparison_ids') || '[]')
-      return Array.isArray(savedIds) ? savedIds.slice(0, 5) : []
-    } catch {
-      return []
-    }
-  })
-  const [comparisonStrokeFilter, setComparisonStrokeFilter] = useState('')
-  const [comparisonError, setComparisonError] = useState('')
   const [dashboardLoading, setDashboardLoading] = useState(false)
   const [dashboardError, setDashboardError] = useState('')
   const fileInput = useRef(null)
@@ -80,24 +51,6 @@ function App() {
   const [authPassword, setAuthPassword] = useState('')
   const [authMessage, setAuthMessage] = useState('')
   const [isAuthLoading, setIsAuthLoading] = useState(false)
-
-  // Persist the active page so refreshing History, Analyse Stroke,
-  // Compare Analyses, or Account keeps the user on that page.
-  useEffect(() => {
-    try {
-      sessionStorage.setItem('rally_active_page', page)
-    } catch (error) {
-      console.warn('Could not preserve the current page:', error)
-    }
-  }, [page])
-
-  useEffect(() => {
-    try {
-      sessionStorage.setItem('rally_comparison_ids', JSON.stringify(comparisonIds))
-    } catch (error) {
-      console.warn('Could not preserve selected comparison sessions:', error)
-    }
-  }, [comparisonIds])
 
   const validFormAnalyses = historyItems
     .filter((item) => item.form_score !== null && item.form_score !== undefined && Number.isFinite(Number(item.form_score)))
@@ -132,21 +85,6 @@ function App() {
     const y = 174 - (Math.max(0, Math.min(100, Number(item.form_score))) / 100) * 140
     return { x, y, score: Number(item.form_score), date: item.created_at }
   })
-  const selectedComparisons = historyItems
-    .filter((item) => comparisonIds.includes(item.id))
-    .slice()
-    .sort((a, b) => new Date(a.created_at || 0) - new Date(b.created_at || 0))
-  const comparisonCandidates = historyItems.filter((item) =>
-    item.form_score !== null && item.form_score !== undefined && Number.isFinite(Number(item.form_score))
-  )
-  const comparisonStrokeOptions = [...new Set(comparisonCandidates.map((item) => item.stroke_type).filter(Boolean))]
-  const effectiveComparisonStroke = comparisonStrokeFilter || comparisonStrokeOptions.find((stroke) =>
-    comparisonCandidates.filter((item) => (item.stroke_type || '').toLowerCase() === stroke.toLowerCase()).length >= 2
-  ) || comparisonStrokeOptions[0] || ''
-  const filteredComparisonCandidates = comparisonCandidates.filter((item) =>
-    (item.stroke_type || '').toLowerCase() === effectiveComparisonStroke.toLowerCase()
-  )
-  const comparisonStroke = selectedComparisons[0]?.stroke_type || effectiveComparisonStroke
 
   // Restore the authenticated session from the HTTP-only cookie on page load.
   useEffect(() => {
@@ -365,15 +303,6 @@ function App() {
     setSaveAnalysis(false)
     setSaveVideo(false)
     setHistoryItems([])
-    setComparisonIds([])
-    setComparisonStrokeFilter('')
-    setComparisonError('')
-    try {
-      sessionStorage.removeItem('rally_comparison_ids')
-      sessionStorage.removeItem('rally_active_page')
-    } catch (error) {
-      console.warn('Could not clear saved comparison state:', error)
-    }
     setSelectedHistory(null)
     setHistoryVideo(null)
     setHistoryVideoError('')
@@ -408,55 +337,6 @@ function App() {
     } finally {
       setIsHistoryLoading(false)
     }
-  }
-
-  async function loadComparisonHistory() {
-    if (!user) {
-      setPage('Compare Analyses')
-      setComparisonError('Please log in to compare your saved analyses.')
-      setHistoryItems([])
-      return
-    }
-
-    setPage('Compare Analyses')
-    setIsHistoryLoading(true)
-    setHistoryError('')
-    setComparisonError('')
-    setComparisonIds([])
-    setComparisonStrokeFilter('')
-
-    try {
-      const response = await fetch(`${API_URL}/api/analyses?limit=100`, {
-        credentials: 'include',
-      })
-      const data = await response.json().catch(() => ({}))
-      if (!response.ok) {
-        throw new Error(data.detail || `Could not load analyses (HTTP ${response.status}).`)
-      }
-      setHistoryItems(Array.isArray(data.items) ? data.items : [])
-    } catch (error) {
-      setComparisonError(error.message || 'Could not load your saved analyses.')
-    } finally {
-      setIsHistoryLoading(false)
-    }
-  }
-
-  function toggleComparisonSelection(item) {
-    setComparisonError('')
-    if (comparisonIds.includes(item.id)) {
-      setComparisonIds(comparisonIds.filter((id) => id !== item.id))
-      return
-    }
-    if (comparisonIds.length >= 5) {
-      setComparisonError('You can compare up to five sessions at a time.')
-      return
-    }
-    const firstSelected = historyItems.find((entry) => entry.id === comparisonIds[0])
-    if (firstSelected && (firstSelected.stroke_type || '').toLowerCase() !== (item.stroke_type || '').toLowerCase()) {
-      setComparisonError(`Please select sessions with the same stroke type (${firstSelected.stroke_type}).`)
-      return
-    }
-    setComparisonIds([...comparisonIds, item.id])
   }
 
   async function openHistoryItem(item) {
@@ -558,50 +438,6 @@ function App() {
     setMessage('Draw a selection box around the player before starting analysis.')
   }
 
-
-  async function downloadAnalysisReport(analysisData = null, analysisId = null) {
-    setIsReportLoading(true)
-    setReportError('')
-
-    try {
-      const payload = analysisId
-        ? { analysis_id: analysisId }
-        : { analysis_data: analysisData }
-
-      const response = await fetch(`${API_URL}/api/analyses/report`, {
-        method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      })
-
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}))
-        throw new Error(errorData.detail || 'Could not generate the analysis report.')
-      }
-
-      const blob = await response.blob()
-      if (!blob.size || (blob.type && !blob.type.includes('pdf'))) {
-        throw new Error('The server did not return a valid PDF report.')
-      }
-
-      const objectUrl = URL.createObjectURL(blob)
-      const link = document.createElement('a')
-      const stroke = analysisData?.selected_stroke_type || selectedHistory?.stroke_type || 'analysis'
-      const safeStroke = String(stroke).toLowerCase().replace(/[^a-z0-9_-]+/g, '_')
-      link.href = objectUrl
-      link.download = `rally_${safeStroke || 'analysis'}_report.pdf`
-      document.body.appendChild(link)
-      link.click()
-      link.remove()
-      URL.revokeObjectURL(objectUrl)
-    } catch (error) {
-      setReportError(error.message || 'Could not download the analysis report.')
-    } finally {
-      setIsReportLoading(false)
-    }
-  }
-
   async function generateSkeletonOverlay() {
     if (!video) {
       setSkeletonOverlayError('The original uploaded video is no longer available. Please upload it again.')
@@ -671,7 +507,7 @@ function App() {
     }
 
     setIsAnalysing(true)
-    setMessage('Processing the selected player with CSRT tracking, MediaPipe and the LSTM autoencoder…')
+    setMessage('Processing the selected player with CSRT tracking, MediaPipe, the LSTM classifier and the LSTM autoencoder…')
     setAnalysisResult(null)
     setSkeletonOverlayUrl('')
     setSkeletonOverlayError('')
@@ -750,12 +586,6 @@ function App() {
             onClick={loadHistory}
           >
             <span>◷</span> Analysis History
-          </button>
-          <button
-            className={`nav-item ${page === 'Compare Analyses' ? 'active' : ''}`}
-            onClick={loadComparisonHistory}
-          >
-            <span>⇄</span> Compare Analyses
           </button>
         </nav>
 
@@ -1208,8 +1038,8 @@ function App() {
                 <div className="stroke-selection">
                   <div className="section-heading">
                     <div>
-                      <h2>Select stroke type</h2>
-                      <p>Choose the stroke you want to review.</p>
+                      <h2>Select form reference stroke</h2>
+                      <p>Choose the expected stroke for class-specific form evaluation. The LSTM classifier predicts independently.</p>
                     </div>
                     <span className="muted-tag">REQUIRED</span>
                   </div>
@@ -1295,6 +1125,67 @@ function App() {
                   </div>
                 )}
 
+                {analysisResult?.classification && (
+                  <section className="panel analysis-results classification-results" aria-live="polite">
+                    <div className="panel-heading">
+                      <div>
+                        <p className="eyebrow">LSTM CLASSIFIER · RUN 059</p>
+                        <h2>Stroke classification</h2>
+                        <p>Predicted independently from the uploaded video.</p>
+                      </div>
+                      <span className="muted-tag">COMPLETED</span>
+                    </div>
+
+                    <div className="form-score-card">
+                      <div>
+                        <span className="result-label">Predicted stroke</span>
+                        <div className="form-score-value">
+                          {analysisResult.classification.predicted_stroke}
+                        </div>
+                      </div>
+                      <span className="form-rating">
+                        {(Number(analysisResult.classification.confidence ?? 0) * 100).toFixed(1)}% confidence
+                      </span>
+                    </div>
+
+                    <div className="classification-probabilities">
+                      <h3>Class probability distribution</h3>
+                      {[
+                        ['clear', 'Clear'],
+                        ['drop', 'Drop Shot'],
+                        ['smash', 'Smash'],
+                      ].map(([key, label]) => {
+                        const probability = Number(analysisResult.classification.probabilities?.[key] ?? 0)
+                        return (
+                          <div className="classification-probability-row" key={key}>
+                            <div className="classification-probability-heading">
+                              <strong>{label}</strong>
+                              <span>{(probability * 100).toFixed(1)}%</span>
+                            </div>
+                            <div className="classification-probability-track">
+                              <span style={{ width: `${Math.max(0, Math.min(100, probability * 100))}%` }} />
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </div>
+
+                    <div className="result-meta">
+                      <span>Selected form reference</span>
+                      <strong>{analysisResult.selected_stroke_type}</strong>
+                      <span>Prediction matches selection</span>
+                      <strong>{analysisResult.classification_matches_selected_stroke ? 'Yes' : 'No'}</strong>
+                      <span>Model test accuracy</span>
+                      <strong>{(Number(analysisResult.classification.test_accuracy ?? 0) * 100).toFixed(2)}%</strong>
+                      <span>Test samples</span>
+                      <strong>{analysisResult.classification.test_samples ?? '—'}</strong>
+                    </div>
+                    <p className="classification-note">
+                      Test accuracy is the model's offline evaluation result; confidence is the probability assigned to this individual video. The selected form reference remains separate from the automatic prediction.
+                    </p>
+                  </section>
+                )}
+
                 {analysisResult && (
                   <section className="panel analysis-results" aria-live="polite">
                     <div className="panel-heading">
@@ -1303,22 +1194,6 @@ function App() {
                         <h2>Stroke form evaluation</h2>
                       </div>
                       <span className="muted-tag">COMPLETED</span>
-                    </div>
-
-                    <div className="report-download-row">
-                      <button
-                        type="button"
-                        className="secondary-button report-download-button"
-                        onClick={() => downloadAnalysisReport(
-                          analysisResult,
-                          analysisResult.analysis_id || null
-                        )}
-                        disabled={isReportLoading}
-                      >
-                        {isReportLoading ? 'Preparing PDF…' : 'Download analysis report'}
-                        {!isReportLoading && <span aria-hidden="true">↓</span>}
-                      </button>
-                      {reportError && <p className="report-download-error" role="alert">{reportError}</p>}
                     </div>
 
                     {analysisResult.warning && (
@@ -1878,202 +1753,9 @@ function App() {
                   <section className="panel history-detail">
                     <div className="panel-heading">
                       <div><p className="eyebrow">SAVED EVALUATION</p><h2>Analysis details</h2></div>
-                      <div className="history-detail-actions">
-                        <button
-                          type="button"
-                          className="secondary-button report-download-button"
-                          onClick={() => downloadAnalysisReport(
-                            selectedHistory.result ?? selectedHistory,
-                            selectedHistory.id || null
-                          )}
-                          disabled={isReportLoading}
-                        >
-                          {isReportLoading ? 'Preparing PDF…' : 'Download report'}
-                        </button>
-                        <button className="text-button" onClick={() => setSelectedHistory(null)}>Close</button>
-                      </div>
+                      <button className="text-button" onClick={() => setSelectedHistory(null)}>Close</button>
                     </div>
-                    {reportError && <p className="report-download-error" role="alert">{reportError}</p>}
                     <pre>{JSON.stringify(selectedHistory.result ?? selectedHistory, null, 2)}</pre>
-                  </section>
-                )}
-              </>
-            )}
-          </section>
-        )}
-
-
-        {page === 'Compare Analyses' && (
-          <section className="page-content inner-page comparison-page">
-            <p className="eyebrow">PERFORMANCE TRACKING</p>
-            <h1>Compare previous analyses<span>.</span></h1>
-            <p className="subheading">
-              Select two to five saved sessions of the same stroke type to review how your performance changes over time.
-            </p>
-
-            {!user ? (
-              <section className="empty-state panel">
-                <span className="empty-icon">⇄</span>
-                <h2>Log in to compare performances</h2>
-                <p>Your saved analyses are linked to your account. Log in to select sessions and compare your results.</p>
-                <button className="primary-button" onClick={() => setPage('Account')}>Go to account →</button>
-              </section>
-            ) : isHistoryLoading ? (
-              <section className="empty-state panel"><h2>Loading your saved analyses…</h2></section>
-            ) : comparisonError && historyItems.length === 0 ? (
-              <section className="panel comparison-empty">
-                <div className="notice" role="alert">{comparisonError}</div>
-                <button className="secondary-button" onClick={loadComparisonHistory}>Try again</button>
-              </section>
-            ) : filteredComparisonCandidates.length < 2 ? (
-              <section className="empty-state panel">
-                <span className="empty-icon">⇄</span>
-                <h2>Not enough saved analyses</h2>
-                <p>You need at least two saved analyses with valid form scores before you can compare your performance.</p>
-                <button className="primary-button" onClick={() => setPage('Analyse Stroke')}>Analyse a stroke →</button>
-              </section>
-            ) : (
-              <>
-                <section className="panel comparison-selector">
-                  <div className="panel-heading">
-                    <div>
-                      <p className="eyebrow">STEP 1</p>
-                      <h2>Select your sessions</h2>
-                      <p>Choose 2–5 sessions. For a fair comparison, all selected sessions must use the same stroke type.</p>
-                    </div>
-                    <span className="comparison-count">{comparisonIds.length}/5 selected</span>
-                  </div>
-
-                  {comparisonError && <div className="notice comparison-notice" role="alert">{comparisonError}</div>}
-
-                  <div className="comparison-session-list">
-                    {comparisonCandidates.map((item) => {
-                      const isSelected = comparisonIds.includes(item.id)
-                      const firstSelected = historyItems.find((entry) => entry.id === comparisonIds[0])
-                      const differentStroke = firstSelected &&
-                        (firstSelected.stroke_type || '').toLowerCase() !== (item.stroke_type || '').toLowerCase()
-                      const disabled = (!isSelected && (comparisonIds.length >= 5 || differentStroke))
-
-                      return (
-                        <label className={`comparison-session ${isSelected ? 'selected' : ''} ${disabled ? 'disabled' : ''}`} key={item.id}>
-                          <input
-                            type="checkbox"
-                            checked={isSelected}
-                            disabled={disabled}
-                            onChange={() => toggleComparisonSelection(item)}
-                          />
-                          <span className="comparison-session-main">
-                            <strong>{item.stroke_type || 'Stroke analysis'}</strong>
-                            <small>{item.created_at ? new Date(item.created_at).toLocaleString() : 'Date unavailable'}</small>
-                            <small>{item.video_filename || 'Saved analysis'}</small>
-                          </span>
-                          <span className="comparison-session-score">
-                            <strong>{Number(item.form_score).toFixed(1)}</strong>
-                            <small>FORM SCORE</small>
-                          </span>
-                        </label>
-                      )
-                    })}
-                  </div>
-
-                  <div className="comparison-selector-footer">
-                    <span>{comparisonIds.length < 2 ? 'Select at least two sessions to compare.' : `${comparisonIds.length} sessions ready to compare.`}</span>
-                    <button className="text-button" type="button" onClick={() => { setComparisonIds([]); setComparisonError('') }} disabled={comparisonIds.length === 0}>Clear selection</button>
-                  </div>
-                </section>
-
-                {selectedComparisons.length >= 2 && (
-                  <section className="comparison-results">
-                    <div className="section-heading comparison-results-heading">
-                      <div>
-                        <p className="eyebrow">STEP 2</p>
-                        <h2>{comparisonStroke} performance comparison</h2>
-                        <p>Sessions are arranged from oldest to newest.</p>
-                      </div>
-                      <span className="section-count">{selectedComparisons.length} SESSIONS</span>
-                    </div>
-
-                    <div className="comparison-summary-grid">
-                      {[
-                        { key: 'form_score', label: 'Overall form', higher: true },
-                        { key: 'biomechanical_score', label: 'Biomechanical', higher: true },
-                        { key: 'temporal_similarity_score', label: 'Temporal similarity', higher: true },
-                        { key: 'reconstruction_error', label: 'Reconstruction error', higher: false },
-                      ].map((metric) => {
-                        const firstValue = Number(selectedComparisons[0][metric.key])
-                        const lastValue = Number(selectedComparisons[selectedComparisons.length - 1][metric.key])
-                        const hasValues = selectedComparisons[0][metric.key] != null &&
-                          selectedComparisons[selectedComparisons.length - 1][metric.key] != null &&
-                          Number.isFinite(firstValue) && Number.isFinite(lastValue)
-                        const change = hasValues ? lastValue - firstValue : null
-                        const improved = hasValues && (metric.higher ? change > 0 : change < 0)
-                        const declined = hasValues && (metric.higher ? change < 0 : change > 0)
-                        return (
-                          <article className="panel comparison-summary-card" key={metric.key}>
-                            <span>{metric.label}</span>
-                            <strong>{hasValues ? `${change > 0 ? '+' : ''}${change.toFixed(2)}` : '—'}</strong>
-                            <small className={improved ? 'comparison-improved' : declined ? 'comparison-declined' : ''}>
-                              {!hasValues ? 'Insufficient data' : improved ? 'Improved from first to latest' : declined ? 'Declined from first to latest' : 'No change from first to latest'}
-                            </small>
-                          </article>
-                        )
-                      })}
-                    </div>
-
-                    <section className="panel comparison-table-panel">
-                      <div className="panel-heading">
-                        <div><p className="eyebrow">SESSION BREAKDOWN</p><h2>Metric comparison</h2></div>
-                      </div>
-                      <div className="comparison-table-wrap">
-                        <table className="comparison-table">
-                          <thead>
-                            <tr>
-                              <th>Metric</th>
-                              {selectedComparisons.map((item, index) => (
-                                <th key={item.id}>Session {index + 1}<small>{item.created_at ? new Date(item.created_at).toLocaleDateString() : 'Date unavailable'}</small></th>
-                              ))}
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {[
-                              { key: 'form_score', label: 'Overall form score', suffix: '/100' },
-                              { key: 'biomechanical_score', label: 'Biomechanical score', suffix: '/100' },
-                              { key: 'temporal_similarity_score', label: 'Temporal similarity', suffix: '/100' },
-                              { key: 'reconstruction_error', label: 'Reconstruction error', suffix: '' },
-                            ].map((metric) => (
-                              <tr key={metric.key}>
-                                <th>{metric.label}</th>
-                                {selectedComparisons.map((item) => {
-                                  const value = item[metric.key]
-                                  return <td key={item.id}>{value == null || !Number.isFinite(Number(value)) ? '—' : `${Number(value).toFixed(2)}${metric.suffix}`}</td>
-                                })}
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                    </section>
-
-                    <section className="panel comparison-timeline-panel">
-                      <div className="panel-heading">
-                        <div><p className="eyebrow">FORM SCORE TREND</p><h2>Progress across selected sessions</h2></div>
-                      </div>
-                      <div className="comparison-trend-list">
-                        {selectedComparisons.map((item, index) => {
-                          const score = Math.max(0, Math.min(100, Number(item.form_score) || 0))
-                          return (
-                            <div className="comparison-trend-item" key={item.id}>
-                              <div className="comparison-trend-label">
-                                <span>Session {index + 1} · {item.created_at ? new Date(item.created_at).toLocaleDateString() : 'Date unavailable'}</span>
-                                <strong>{score.toFixed(1)}</strong>
-                              </div>
-                              <div className="comparison-trend-track"><span style={{ width: `${score}%` }} /></div>
-                            </div>
-                          )
-                        })}
-                      </div>
-                    </section>
-                    <p className="comparison-footnote">A higher form, biomechanical, or temporal similarity score indicates a better result. A lower reconstruction error indicates closer similarity to the reference movement. These metrics support performance tracking and are not a substitute for coaching assessment.</p>
                   </section>
                 )}
               </>
