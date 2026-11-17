@@ -5135,204 +5135,102 @@ body {
   }
 }
 
-/* Dashboard-only typography enlargement.
-   Scoped to the Dashboard page so other screens and navigation remain unchanged. */
-.page-content:has(> .welcome-row) .eyebrow {
+
+/* Account form readability and responsive password reveal control */
+.account-options .auth-form-field input {
+  min-height: 48px;
+  padding: 13px 15px;
+  border: 1px solid #344967;
+  border-radius: 9px;
+  background: #1b2b43;
+  color: #f2f6ff;
+  -webkit-text-fill-color: #f2f6ff;
+  caret-color: #60a5fa;
+  color-scheme: dark;
+}
+
+.account-options .auth-form-field input::placeholder {
+  color: #91a3bd;
+  opacity: 1;
+}
+
+.account-options .auth-form-field input:-webkit-autofill,
+.account-options .auth-form-field input:-webkit-autofill:hover,
+.account-options .auth-form-field input:-webkit-autofill:focus {
+  -webkit-text-fill-color: #f2f6ff;
+  box-shadow: 0 0 0 1000px #1b2b43 inset;
+  caret-color: #60a5fa;
+}
+
+.auth-password-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+  width: 100%;
+}
+
+.auth-password-wrap input {
+  padding-right: 70px !important;
+}
+
+.password-visibility-button {
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  border: 0;
+  background: transparent;
+  color: #80b7ff;
+  padding: 6px;
   font-size: 11px;
+  font-weight: 700;
 }
 
-.page-content:has(> .welcome-row) .welcome-row h1 {
-  font-size: clamp(32px, 3.2vw, 43px);
+.password-visibility-button:hover {
+  color: #c4ddff;
 }
 
-.page-content:has(> .welcome-row) .subheading {
-  font-size: 15px;
+/* Keep the account actions evenly spaced beneath the OR divider. */
+.account-options > .secondary-button,
+.account-options > .text-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  vertical-align: middle;
+  min-height: 44px;
+  margin: 8px 6px 0;
 }
 
-.page-content:has(> .welcome-row) .welcome-row > button {
-  font-size: 14px;
-  padding: 14px 19px;
+.account-options > .secondary-button {
+  padding: 12px 18px;
 }
 
-.page-content:has(> .welcome-row) .hero-tag {
-  font-size: 11px;
+.account-options > .text-button {
+  padding: 12px 10px;
+  white-space: nowrap;
 }
 
-.page-content:has(> .welcome-row) .hero-copy h2 {
-  font-size: clamp(36px, 3.8vw, 52px);
+.sidebar-bottom .sidebar-user-arrow {
+  background: #203858;
+  border: 1px solid rgba(117, 162, 255, 0.28);
+  color: #75a2ff;
+  border-radius: 8px;
+  flex: 0 0 34px;
+  width: 34px;
+  height: 34px;
 }
 
-.page-content:has(> .welcome-row) .hero-copy > p {
-  font-size: 14px;
-  line-height: 1.85;
+.sidebar-bottom .sidebar-user-arrow svg {
+  display: block;
 }
 
-.page-content:has(> .welcome-row) .hero-button {
-  font-size: 14px;
-  padding: 14px 19px;
-}
-
-.page-content:has(> .welcome-row) .hero-note {
-  font-size: 10px;
-}
-
-.page-content:has(> .welcome-row) .visual-label {
-  font-size: 11px;
-  padding: 11px 13px;
-}
-
-.page-content:has(> .welcome-row) .visual-coordinate {
-  font-size: 9px;
-}
-
-.page-content:has(> .welcome-row) .section-heading h2,
-.page-content:has(> .welcome-row) .panel-heading h2 {
-  font-size: 20px;
-}
-
-.page-content:has(> .welcome-row) .section-heading p,
-.page-content:has(> .welcome-row) .panel-heading p {
-  font-size: 13px;
-}
-
-.page-content:has(> .welcome-row) .section-count,
-.page-content:has(> .welcome-row) .muted-tag {
-  font-size: 11px;
-}
-
-.page-content:has(> .welcome-row) .stroke-number {
-  font-size: 10px;
-}
-
-.page-content:has(> .welcome-row) .stroke-card h3 {
-  font-size: 16px;
-}
-
-.page-content:has(> .welcome-row) .stroke-card p {
-  font-size: 12px;
-  line-height: 1.6;
-}
-
-.page-content:has(> .welcome-row) .workflow-step strong {
-  font-size: 13px;
-}
-
-.page-content:has(> .welcome-row) .workflow-step p {
-  font-size: 12px;
-  line-height: 1.6;
-}
-
-.page-content:has(> .welcome-row) .account-panel h2 {
-  font-size: 25px;
-}
-
-.page-content:has(> .welcome-row) .account-description {
-  font-size: 13px;
-}
-
-.page-content:has(> .welcome-row) .account-panel .primary-button,
-.page-content:has(> .welcome-row) .account-panel .secondary-button {
-  font-size: 14px;
-}
-
-@media (max-width: 760px) {
-  .page-content:has(> .welcome-row) .welcome-row h1 {
-    font-size: 32px;
+@media (max-width: 560px) {
+  .account-options > .secondary-button,
+  .account-options > .text-button {
+    margin: 7px 3px 0;
   }
 
-  .page-content:has(> .welcome-row) .hero-copy h2 {
-    font-size: 36px;
-  }
-
-  .page-content:has(> .welcome-row) .subheading {
-    font-size: 14px;
-  }
-
-  .page-content:has(> .welcome-row) .hero-copy > p {
-    font-size: 13px;
-  }
-}
-
-/* Stronger Dashboard hero typography: make the main message fill its panel. */
-.hero-card .hero-copy {
-  padding: 48px 46px !important;
-}
-
-.hero-card .hero-tag {
-  font-size: 14px !important;
-  letter-spacing: 1.8px !important;
-  padding: 12px 16px !important;
-}
-
-.hero-card .hero-copy h2 {
-  max-width: 680px !important;
-  font-size: clamp(48px, 4.3vw, 68px) !important;
-  line-height: 1.08 !important;
-  letter-spacing: -2.4px !important;
-  margin: 30px 0 22px !important;
-}
-
-.hero-card .hero-copy > p {
-  max-width: 590px !important;
-  font-size: clamp(17px, 1.25vw, 20px) !important;
-  line-height: 1.9 !important;
-  margin-bottom: 30px !important;
-}
-
-.hero-card .hero-button {
-  font-size: 17px !important;
-  padding: 17px 23px !important;
-}
-
-.hero-card .hero-note {
-  margin-top: 28px !important;
-  font-size: 12px !important;
-  letter-spacing: 1.3px !important;
-}
-
-.hero-card .visual-label {
-  font-size: 15px !important;
-  padding: 14px 17px !important;
-}
-
-.hero-card .visual-coordinate {
-  font-size: 11px !important;
-}
-
-.page-content > .welcome-row .eyebrow {
-  font-size: 13px !important;
-  letter-spacing: 2px !important;
-}
-
-.page-content > .welcome-row h1 {
-  font-size: clamp(38px, 3.4vw, 50px) !important;
-  letter-spacing: -1.8px !important;
-}
-
-.page-content > .welcome-row .subheading {
-  font-size: 17px !important;
-  line-height: 1.8 !important;
-}
-
-.page-content > .welcome-row .primary-button {
-  font-size: 16px !important;
-  padding: 17px 22px !important;
-}
-
-@media (max-width: 760px) {
-  .hero-card .hero-copy {
-    padding: 30px 24px !important;
-  }
-
-  .hero-card .hero-copy h2 {
-    font-size: clamp(38px, 9vw, 48px) !important;
-  }
-
-  .hero-card .hero-copy > p {
-    font-size: 16px !important;
-  }
-
-  .page-content > .welcome-row h1 {
-    font-size: 36px !important;
+  .account-options > .secondary-button {
+    padding-inline: 12px;
   }
 }

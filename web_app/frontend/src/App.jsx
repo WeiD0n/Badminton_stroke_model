@@ -122,6 +122,7 @@ function App() {
   const [authEmail, setAuthEmail] = useState('')
   const [authUsername, setAuthUsername] = useState('')
   const [authPassword, setAuthPassword] = useState('')
+  const [showAuthPassword, setShowAuthPassword] = useState(false)
   const [authMessage, setAuthMessage] = useState('')
   const [isAuthLoading, setIsAuthLoading] = useState(false)
 
@@ -829,7 +830,12 @@ function App() {
                 <strong>{user.username}</strong>
                 <small>Signed in</small>
               </span>
-              <span className="sidebar-user-arrow"></span>
+              <span className="sidebar-user-arrow" aria-hidden="true">
+                <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="12" cy="8" r="3.5" />
+                  <path d="M5 20a7 7 0 0 1 14 0" />
+                </svg>
+              </span>
             </button>
           )}
           <div className="sidebar-footer">
@@ -1074,32 +1080,15 @@ function App() {
               </section>
 
               <section className="panel account-panel">
-                <div className="account-symbol">
-                  <svg
-                    viewBox="0 0 24 24"
-                    width="22"
-                    height="22"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="1.8"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    aria-hidden="true"
-                  >
+                <div className="account-symbol" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
                     <circle cx="9" cy="8" r="4" />
                     <path d="M3 20v-1a6 6 0 0 1 6-6h2" />
-                    <path d="M19 14v6" />
-                    <path d="M16 17h6" />
+                    <path d="M19 14v6M16 17h6" />
                   </svg>
                 </div>
-
                 <p className="eyebrow">YOUR TRAINING JOURNEY</p>
-
-                <h2>
-                  Build consistency,<br />
-                  one stroke at a time.
-                </h2>
-
+                <h2>Build consistency,<br />one stroke at a time.</h2>
                 <p className="account-description">
                   Create an account to save your analyses and review
                   your progress over time.
@@ -1918,8 +1907,22 @@ function App() {
                 </div>
 
                 <div className="guest-info">
-                  <strong>Guest session</strong>
-                  <p>You can prepare a video without creating an account.</p>
+                  {isSessionLoading ? (
+                    <>
+                      <strong>Checking account</strong>
+                      <p>Verifying your Rally session.</p>
+                    </>
+                  ) : user ? (
+                    <>
+                      <strong>Signed in as {user.username}</strong>
+                      <p>Your analyses can be saved to your Rally account.</p>
+                    </>
+                  ) : (
+                    <>
+                      <strong>Guest session</strong>
+                      <p>You can prepare a video without creating an account.</p>
+                    </>
+                  )}
                 </div>
               </aside>
             </div>
@@ -2356,6 +2359,7 @@ function App() {
                       <input
                         id="auth-email"
                         type="email"
+                        autoComplete="email"
                         value={authEmail}
                         onChange={(event) =>
                           setAuthEmail(event.target.value)
@@ -2385,18 +2389,29 @@ function App() {
 
                     <div className="auth-form-field">
                       <label htmlFor="auth-password">Password</label>
-                      <input
-                        id="auth-password"
-                        type="password"
-                        value={authPassword}
-                        onChange={(event) =>
-                          setAuthPassword(event.target.value)
-                        }
-                        placeholder="Enter your password"
-                        minLength={authMode === 'register' ? 8 : undefined}
-                        maxLength={128}
-                        required
-                      />
+                      <div className="auth-password-wrap">
+                        <input
+                          id="auth-password"
+                          type={showAuthPassword ? 'text' : 'password'}
+                          autoComplete={authMode === 'register' ? 'new-password' : 'current-password'}
+                          value={authPassword}
+                          onChange={(event) =>
+                            setAuthPassword(event.target.value)
+                          }
+                          placeholder="Enter your password"
+                          minLength={authMode === 'register' ? 8 : undefined}
+                          maxLength={128}
+                          required
+                        />
+                        <button
+                          type="button"
+                          className="password-visibility-button"
+                          onClick={() => setShowAuthPassword((visible) => !visible)}
+                          aria-label={showAuthPassword ? 'Hide password' : 'Show password'}
+                        >
+                          {showAuthPassword ? 'Hide' : 'Show'}
+                        </button>
+                      </div>
                     </div>
 
                     <button
@@ -2431,6 +2446,7 @@ function App() {
                       )
                       setAuthMessage('')
                       setAuthPassword('')
+                      setShowAuthPassword(false)
                     }}
                   >
                     {authMode === 'login'
