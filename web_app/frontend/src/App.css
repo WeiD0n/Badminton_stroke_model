@@ -5234,3 +5234,16 @@ body {
     padding-inline: 12px;
   }
 }
+
+
+/* Password recovery and one-time registration recovery code */
+.forgot-password-link { display:block; margin:12px 0 0 auto; padding:5px 0; color:#80b7ff; background:transparent; border:0; font-size:11px; font-weight:700; }
+.forgot-password-link:hover { color:#c4ddff; text-decoration:underline; }
+.recovery-code-panel { width:100%; text-align:center; }
+.recovery-code-panel .account-symbol { margin:0 auto 18px; }
+.recovery-code-panel > p:not(.eyebrow) { max-width:440px; margin:0 auto 18px; color:var(--muted); font-size:12px; line-height:1.8; }
+.recovery-code-value { width:100%; margin:20px 0 14px; padding:17px 14px; border:1px dashed #5285c4; border-radius:9px; background:#0b1729; color:#dcecff; font-family:ui-monospace,SFMono-Regular,Consolas,monospace; font-size:clamp(15px,2vw,19px); font-weight:700; letter-spacing:1px; overflow-wrap:anywhere; user-select:all; }
+.recovery-copy-button, .recovery-continue-button { width:100%; margin-top:10px; }
+.recovery-warning { margin:18px 0 8px; padding:13px 15px; border:1px solid #765b2b; border-radius:8px; background:#302719; color:#f4d9a5; font-size:11px; line-height:1.7; text-align:left; }
+.recovery-warning strong { color:#ffe3a8; }
+@media (max-width:560px) { .recovery-code-value { font-size:14px; letter-spacing:.4px; } }

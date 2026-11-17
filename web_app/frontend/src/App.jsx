@@ -125,6 +125,11 @@ function App() {
   const [showAuthPassword, setShowAuthPassword] = useState(false)
   const [authMessage, setAuthMessage] = useState('')
   const [isAuthLoading, setIsAuthLoading] = useState(false)
+  const [recoveryCode, setRecoveryCode] = useState('')
+  const [resetRecoveryCode, setResetRecoveryCode] = useState('')
+  const [resetNewPassword, setResetNewPassword] = useState('')
+  const [showResetPassword, setShowResetPassword] = useState(false)
+  const [recoveryCodeCopied, setRecoveryCodeCopied] = useState(false)
 
   // Persist the active page so refreshing History, Analyse Stroke,
   // Compare Analyses, or Account keeps the user on that page.
@@ -311,87 +316,52 @@ function App() {
     event.preventDefault()
     setAuthMessage('')
     setIsAuthLoading(true)
-
     try {
+      if (authMode === 'forgot') {
+        const response = await fetch(`${API_URL}/api/auth/reset-password`, {
+          method: 'POST', credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: authEmail, recovery_code: resetRecoveryCode.trim(), new_password: resetNewPassword }),
+        })
+        const data = await response.json().catch(() => ({}))
+        if (!response.ok) throw new Error(data.detail || 'Password reset failed. Check your email and recovery code.')
+        setAuthMessage('Password reset successfully. You can now log in with your new password.')
+        setAuthMode('login'); setResetRecoveryCode(''); setResetNewPassword(''); setAuthPassword(''); setShowResetPassword(false)
+        return
+      }
+      let registrationCode = ''
       if (authMode === 'register') {
-        const registerResponse = await fetch(
-          `${API_URL}/api/auth/register`,
-          {
-            method: 'POST',
-            credentials: 'include',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              email: authEmail,
-              username: authUsername,
-              password: authPassword,
-            }),
-          }
-        )
-
-        const registerData = await registerResponse.json()
-
-        if (!registerResponse.ok) {
-          throw new Error(
-            registerData.detail || 'Registration failed.'
-          )
-        }
+        const registerResponse = await fetch(`${API_URL}/api/auth/register`, {
+          method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: authEmail, username: authUsername, password: authPassword }),
+        })
+        const registerData = await registerResponse.json().catch(() => ({}))
+        if (!registerResponse.ok) throw new Error(registerData.detail || 'Registration failed.')
+        registrationCode = registerData.recovery_code
+        if (!registrationCode) throw new Error('Your account was created, but the server did not return a recovery code. Please contact support before logging out.')
       }
-
-      // Log in after registration, or directly for existing users.
-      const loginResponse = await fetch(
-        `${API_URL}/api/auth/login`,
-        {
-          method: 'POST',
-          credentials: 'include',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            email: authEmail,
-            password: authPassword,
-          }),
-        }
-      )
-
-      const loginData = await loginResponse.json()
-
-      if (!loginResponse.ok) {
-        throw new Error(loginData.detail || 'Login failed.')
-      }
-
-      // Retrieve the authenticated user's profile.
-      const profileResponse = await fetch(
-        `${API_URL}/api/auth/me`,
-        {
-          credentials: 'include',
-        }
-      )
-
-      const profileData = await profileResponse.json()
-
-      if (!profileResponse.ok) {
-        throw new Error(
-          profileData.detail || 'Could not retrieve your account.'
-        )
-      }
-
-      setUser(profileData)
-
-      setAuthPassword('')
-      setAuthMessage(
-        authMode === 'register'
-          ? 'Account created successfully!'
-          : 'Welcome back!'
-      )
-
-    } catch (error) {
-      setAuthMessage(error.message || 'Something went wrong.')
-    } finally {
-      setIsAuthLoading(false)
-    }
+      const loginResponse = await fetch(`${API_URL}/api/auth/login`, {
+        method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: authEmail, password: authPassword }),
+      })
+      const loginData = await loginResponse.json().catch(() => ({}))
+      if (!loginResponse.ok) throw new Error(loginData.detail || 'Login failed.')
+      const profileResponse = await fetch(`${API_URL}/api/auth/me`, { credentials: 'include' })
+      const profileData = await profileResponse.json().catch(() => ({}))
+      if (!profileResponse.ok) throw new Error(profileData.detail || 'Could not retrieve your account.')
+      setUser(profileData); setAuthPassword('')
+      if (registrationCode) { setRecoveryCode(registrationCode); setRecoveryCodeCopied(false) }
+      else setAuthMessage('Welcome back!')
+    } catch (error) { setAuthMessage(error.message || 'Something went wrong.') }
+    finally { setIsAuthLoading(false) }
   }
+
+  async function copyRecoveryCode() {
+    try { await navigator.clipboard.writeText(recoveryCode); setRecoveryCodeCopied(true) }
+    catch { setAuthMessage('Copy was unavailable in this browser. Select and copy the recovery code manually.') }
+  }
+
+  function closeRecoveryCodeNotice() { setRecoveryCode(''); setRecoveryCodeCopied(false) }
 
   async function handleLogout() {
     try {
@@ -2244,7 +2214,24 @@ function App() {
 
             <section className={`account-options panel ${user ? "account-options-authenticated" : ""}`}>
 
-              {user ? (
+              {recoveryCode ? (
+                <div className="recovery-code-panel">
+                  <div className="account-symbol">✓</div>
+                  <p className="eyebrow">ACCOUNT CREATED</p>
+                  <h2>Save your recovery code</h2>
+                  <p>This code is shown only once. Save it somewhere safe. Rally cannot retrieve it for you later.</p>
+                  <div className="recovery-code-value">{recoveryCode}</div>
+                  <button type="button" className="primary-button recovery-copy-button" onClick={copyRecoveryCode}>
+                    {recoveryCodeCopied ? 'Copied ✓' : 'Copy recovery code'}
+                  </button>
+                  <div className="recovery-warning" role="alert">
+                    <strong>Important:</strong> You need this code to reset your password if you forget it. Do not share it with anyone.
+                  </div>
+                  <button type="button" className="secondary-button recovery-continue-button" onClick={closeRecoveryCodeNotice}>
+                    I have saved my code — continue
+                  </button>
+                </div>
+              ) : user ? (
                 <div className="account-overview-grid">
                   <section className="account-profile">
                     <div className="account-profile-header">
@@ -2342,15 +2329,11 @@ function App() {
                   <div className="account-symbol">♙</div>
 
                   <h2>
-                    {authMode === 'register'
-                      ? 'Create your account'
-                      : 'Welcome back'}
+                    {authMode === 'register' ? 'Create your account' : authMode === 'forgot' ? 'Reset your password' : 'Welcome back'}
                   </h2>
 
                   <p>
-                    {authMode === 'register'
-                      ? 'Create an account to start saving your badminton analyses.'
-                      : 'Log in to access your Rally account.'}
+                    {authMode === 'register' ? 'Create an account to start saving your badminton analyses.' : authMode === 'forgot' ? 'Enter your email, recovery code and a new password.' : 'Log in to access your Rally account.'}
                   </p>
 
                   <form onSubmit={handleAuthSubmit}>
@@ -2387,6 +2370,31 @@ function App() {
                       </div>
                     )}
 
+                    {authMode === 'forgot' ? (
+                      <>
+                        <div className="auth-form-field">
+                          <label htmlFor="reset-recovery-code">Recovery code</label>
+                          <input id="reset-recovery-code" type="text" value={resetRecoveryCode}
+                            onChange={(event) => setResetRecoveryCode(event.target.value.replace(/\s/g, ''))}
+                            placeholder="Enter your 32-character recovery code" minLength={32} maxLength={32}
+                            autoComplete="off" required />
+                        </div>
+                        <div className="auth-form-field">
+                          <label htmlFor="reset-new-password">New password</label>
+                          <div className="auth-password-wrap">
+                            <input id="reset-new-password" type={showResetPassword ? 'text' : 'password'}
+                              value={resetNewPassword} onChange={(event) => setResetNewPassword(event.target.value)}
+                              placeholder="Choose a new password" minLength={8} maxLength={128}
+                              autoComplete="new-password" required />
+                            <button type="button" className="password-visibility-button"
+                              onClick={() => setShowResetPassword((visible) => !visible)}
+                              aria-label={showResetPassword ? 'Hide password' : 'Show password'}>
+                              {showResetPassword ? 'Hide' : 'Show'}
+                            </button>
+                          </div>
+                        </div>
+                      </>
+                    ) : (
                     <div className="auth-form-field">
                       <label htmlFor="auth-password">Password</label>
                       <div className="auth-password-wrap">
@@ -2414,6 +2422,8 @@ function App() {
                       </div>
                     </div>
 
+
+                    )}
                     <button
                       type="submit"
                       className="primary-button"
@@ -2423,7 +2433,9 @@ function App() {
                         ? 'Please wait...'
                         : authMode === 'register'
                           ? 'Create account →'
-                          : 'Log in →'}
+                          : authMode === 'forgot'
+                            ? 'Reset password →'
+                            : 'Log in →'}
                     </button>
                   </form>
 
@@ -2431,6 +2443,19 @@ function App() {
                     <div className="notice" role="status">
                       {authMessage}
                     </div>
+                  )}
+
+                  {authMode === 'login' && (
+                    <button type="button" className="text-button forgot-password-link"
+                      onClick={() => {
+                        setAuthMode('forgot')
+                        setAuthMessage('')
+                        setAuthPassword('')
+                        setResetRecoveryCode('')
+                        setResetNewPassword('')
+                      }}>
+                      Forgot password?
+                    </button>
                   )}
 
                   <div className="account-divider">
@@ -2441,17 +2466,19 @@ function App() {
                     type="button"
                     className="secondary-button"
                     onClick={() => {
-                      setAuthMode(
-                        authMode === 'login' ? 'register' : 'login'
-                      )
+                      setAuthMode(authMode === 'register' || authMode === 'forgot' ? 'login' : 'register')
                       setAuthMessage('')
                       setAuthPassword('')
+                      setResetRecoveryCode('')
+                      setResetNewPassword('')
                       setShowAuthPassword(false)
                     }}
                   >
-                    {authMode === 'login'
-                      ? 'Create a new account'
-                      : 'Already have an account? Log in'}
+                    {authMode === 'register'
+                      ? 'Already have an account? Log in'
+                      : authMode === 'forgot'
+                        ? 'Back to log in'
+                        : 'Create a new account'}
                   </button>
 
                   <button
