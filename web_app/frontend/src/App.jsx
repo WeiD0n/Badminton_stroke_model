@@ -766,14 +766,28 @@ function App() {
         </nav>
 
         <div className="sidebar-bottom">
-          <div className="guest-card">
-            <span className="guest-icon">♙</span>
-            <strong>Guest mode</strong>
-            <p>Analyse strokes without an account.</p>
-            <button onClick={() => setPage('Account')}>
-              Create free account ↗
+          {!user && (
+            <div className="guest-card">
+              <span className="guest-icon">♙</span>
+              <strong>Guest mode</strong>
+              <p>Analyse strokes without an account.</p>
+              <button onClick={() => setPage('Account')}>
+                Create free account ↗
+              </button>
+            </div>
+          )}
+          {user && (
+            <button className="sidebar-user-card" onClick={() => setPage('Account')}>
+              <span className="sidebar-user-avatar">
+                {user.username?.charAt(0).toUpperCase() || 'R'}
+              </span>
+              <span className="sidebar-user-copy">
+                <strong>{user.username}</strong>
+                <small>Signed in</small>
+              </span>
+              <span className="sidebar-user-arrow">↗</span>
             </button>
-          </div>
+          )}
           <div className="sidebar-footer">
             <span className="status-dot" />
             ML SYSTEM <span className="version">V1.0</span>
@@ -2187,30 +2201,30 @@ function App() {
               <span>.</span>
             </h1>
 
-            <section className="account-options panel">
+            <section className={`account-options panel ${user ? 'account-options-authenticated' : ''}`}>
 
               {user ? (
-                <>
+                <div className="account-overview-grid">
                   <section className="account-profile">
                     <div className="account-profile-header">
                       <div className="account-avatar">
                         {user.username?.charAt(0).toUpperCase() || 'R'}
                       </div>
-
                       <div className="account-profile-heading">
                         <span className="account-status">
                           <span className="account-status-dot" />
                           ACCOUNT ACTIVE
                         </span>
-
                         <h2>{user.username}</h2>
-                        <p>Welcome to your Rally account.</p>
+                        <p>Manage your Rally profile and track your badminton analysis activity.</p>
                       </div>
                     </div>
 
                     <div className="account-section-heading">
-                      <h3>Personal information</h3>
-                      <span>Your account details</span>
+                      <div>
+                        <h3>Personal information</h3>
+                        <p>Your registered account details</p>
+                      </div>
                     </div>
 
                     <div className="account-details-grid">
@@ -2218,12 +2232,10 @@ function App() {
                         <span>USERNAME</span>
                         <strong>{user.username}</strong>
                       </div>
-
                       <div className="account-detail-card">
                         <span>EMAIL ADDRESS</span>
                         <strong>{user.email}</strong>
                       </div>
-
                       <div className="account-detail-card account-id-card">
                         <span>ACCOUNT ID</span>
                         <strong>{user.id}</strong>
@@ -2235,9 +2247,8 @@ function App() {
                         className="primary-button"
                         onClick={() => setPage('Analyse Stroke')}
                       >
-                        Analyse a stroke →
+                        Analyse a stroke <span>→</span>
                       </button>
-
                       <button
                         className="secondary-button"
                         onClick={handleLogout}
@@ -2246,7 +2257,45 @@ function App() {
                       </button>
                     </div>
                   </section>
-                </>
+
+                  <aside className="account-side-column">
+                    <section className="account-activity-card">
+                      <p className="eyebrow">YOUR RALLY ACTIVITY</p>
+                      <h3>Analysis overview</h3>
+                      <p className="account-activity-description">
+                        Your saved evaluations and performance data at a glance.
+                      </p>
+                      <div className="account-stat-list">
+                        <div className="account-stat">
+                          <span>Saved analyses</span>
+                          <strong>{historyItems.length}</strong>
+                        </div>
+                        <div className="account-stat">
+                          <span>Average form score</span>
+                          <strong>{averageFormScore === null ? '—' : `${averageFormScore.toFixed(1)}/100`}</strong>
+                        </div>
+                        <div className="account-stat">
+                          <span>Stroke categories</span>
+                          <strong>{strokeProgress.filter((item) => item.count > 0).length}/3</strong>
+                        </div>
+                      </div>
+                      {dashboardLoading && <p className="account-activity-note">Refreshing your activity…</p>}
+                      {dashboardError && <p className="account-activity-note">{dashboardError}</p>}
+                    </section>
+
+                    <section className="account-quick-links">
+                      <p className="eyebrow">QUICK ACCESS</p>
+                      <button onClick={() => setPage('History')}>
+                        <span><strong>Analysis history</strong><small>Review your saved sessions</small></span>
+                        <span>→</span>
+                      </button>
+                      <button onClick={() => setPage('Compare Analyses')}>
+                        <span><strong>Compare analyses</strong><small>Track changes across sessions</small></span>
+                        <span>→</span>
+                      </button>
+                    </section>
+                  </aside>
+                </div>
               ) : (
                 <>
                   <div className="account-symbol">♙</div>
