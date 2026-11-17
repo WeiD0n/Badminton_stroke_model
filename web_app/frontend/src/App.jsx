@@ -4,10 +4,54 @@ import './App.css'
 import badmintonHero from './assets/Neon Badminton Pose Tracking Dashboard.png';
 
 const strokeTypes = [
-  { name: 'Smash', icon: '', description: 'Powerful attacking stroke' },
-  { name: 'Drop Shot', icon: '', description: 'Controlled shot near the net' },
-  { name: 'Clear', icon: '', description: 'High shot to the backcourt' },
+  { name: 'Smash', icon: 'smash', description: 'Powerful attacking stroke' },
+  { name: 'Drop Shot', icon: 'drop', description: 'Controlled shot near the net' },
+  { name: 'Clear', icon: 'clear', description: 'High shot to the backcourt' },
 ]
+
+function StrokeIcon({ type }) {
+  const common = {
+    viewBox: '0 0 32 32',
+    width: '30',
+    height: '30',
+    fill: 'none',
+    stroke: 'currentColor',
+    strokeWidth: '1.8',
+    strokeLinecap: 'round',
+    strokeLinejoin: 'round',
+    'aria-hidden': true,
+    focusable: 'false',
+  }
+
+  if (type === 'smash') {
+    return (
+      <svg {...common}>
+        <path d="M18.5 3.5 8 17h7l-1.5 11.5L24 14h-7l1.5-10.5Z" />
+        <path d="M4 8.5 7 6M25 26l3-2" opacity=".55" />
+      </svg>
+    )
+  }
+
+  if (type === 'drop') {
+    return (
+      <svg {...common}>
+        <path d="M5 7c8 0 14 4 17 11" />
+        <path d="m17 17 5 1 1-5" />
+        <path d="m21 22 5 5M23 20l6 1M20 24l2 5" />
+        <path d="M19 19 25 25" />
+      </svg>
+    )
+  }
+
+  return (
+    <svg {...common}>
+      <path d="M4 22C9 9 19 5 28 8" />
+      <path d="m22 5 6 3-4 5" />
+      <path d="m7 23 5 5M9 21l6 1M6 25l2 5" />
+      <path d="M5 21 12 27" />
+    </svg>
+  )
+}
 
 function App() {
   // Restore the last visited page after a browser refresh in the same tab.
@@ -993,7 +1037,7 @@ function App() {
                   }}
                 >
                   <div className={`stroke-icon stroke-${index + 1}`}>
-                    {stroke.icon}
+                    <StrokeIcon type={stroke.icon} />
                   </div>
                   <div className="stroke-card-text">
                     <span className="stroke-number">0{index + 1}</span>
@@ -1030,9 +1074,32 @@ function App() {
               </section>
 
               <section className="panel account-panel">
-                <div className="account-symbol"></div>
+                <div className="account-symbol">
+                  <svg
+                    viewBox="0 0 24 24"
+                    width="22"
+                    height="22"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.8"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    aria-hidden="true"
+                  >
+                    <circle cx="9" cy="8" r="4" />
+                    <path d="M3 20v-1a6 6 0 0 1 6-6h2" />
+                    <path d="M19 14v6" />
+                    <path d="M16 17h6" />
+                  </svg>
+                </div>
+
                 <p className="eyebrow">YOUR TRAINING JOURNEY</p>
-                <h2>Build consistency,<br />one stroke at a time.</h2>
+
+                <h2>
+                  Build consistency,<br />
+                  one stroke at a time.
+                </h2>
+
                 <p className="account-description">
                   Create an account to save your analyses and review
                   your progress over time.
@@ -1250,7 +1317,7 @@ function App() {
                         }}
                       >
                         <span className={`stroke-icon stroke-${index + 1}`}>
-                          {stroke.icon}
+                          <StrokeIcon type={stroke.icon} />
                         </span>
                         <span className="stroke-choice-text">
                           <strong>{stroke.name}</strong>
