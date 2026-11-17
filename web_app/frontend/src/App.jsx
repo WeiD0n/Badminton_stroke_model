@@ -1260,32 +1260,61 @@ function App() {
                   </div>
                   {user ? (
                     <>
-                      <label className="save-option">
-                        <input
-                          type="checkbox"
-                          checked={saveAnalysis}
-                          onChange={(event) => {
-                            setSaveAnalysis(event.target.checked)
-                            if (!event.target.checked) setSaveVideo(false)
-                          }}
-                        />
-                        <span>
-                          <strong>Save analysis results</strong>
-                          <small>Store your scores, feedback and evaluation metrics in Analysis History.</small>
-                        </span>
-                      </label>
-                      <label className={`save-option ${!saveAnalysis ? 'disabled' : ''}`}>
-                        <input
-                          type="checkbox"
-                          checked={saveVideo}
-                          disabled={!saveAnalysis}
-                          onChange={(event) => setSaveVideo(event.target.checked)}
-                        />
-                        <span>
-                          <strong>Keep uploaded video</strong>
-                          <small>Store a copy of the original video in secure cloud storage for a limited retention period.</small>
-                        </span>
-                      </label>
+                      <section className="account-profile">
+                        <div className="account-profile-header">
+                          <div className="account-avatar">
+                            {user.username?.charAt(0).toUpperCase() || 'R'}
+                          </div>
+
+                          <div className="account-profile-heading">
+                            <span className="account-status">
+                              <span className="account-status-dot" />
+                              ACCOUNT ACTIVE
+                            </span>
+
+                            <h2>{user.username}</h2>
+                            <p>Welcome to your Rally account.</p>
+                          </div>
+                        </div>
+
+                        <div className="account-section-heading">
+                          <h3>Personal information</h3>
+                          <span>Your account details</span>
+                        </div>
+
+                        <div className="account-details-grid">
+                          <div className="account-detail-card">
+                            <span>USERNAME</span>
+                            <strong>{user.username}</strong>
+                          </div>
+
+                          <div className="account-detail-card">
+                            <span>EMAIL ADDRESS</span>
+                            <strong>{user.email}</strong>
+                          </div>
+
+                          <div className="account-detail-card account-id-card">
+                            <span>ACCOUNT ID</span>
+                            <strong>{user.id}</strong>
+                          </div>
+                        </div>
+
+                        <div className="account-actions">
+                          <button
+                            className="primary-button"
+                            onClick={() => setPage('Analyse Stroke')}
+                          >
+                            Analyse a stroke →
+                          </button>
+
+                          <button
+                            className="secondary-button"
+                            onClick={handleLogout}
+                          >
+                            Log out
+                          </button>
+                        </div>
+                      </section>
                     </>
                   ) : (
                     <button type="button" className="text-button" onClick={() => setPage('Account')}>
