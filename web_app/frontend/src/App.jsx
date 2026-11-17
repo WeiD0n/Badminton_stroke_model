@@ -2191,36 +2191,61 @@ function App() {
 
               {user ? (
                 <>
-                  <div className="account-symbol">♙</div>
+                  <section className="account-profile">
+                    <div className="account-profile-header">
+                      <div className="account-avatar">
+                        {user.username?.charAt(0).toUpperCase() || 'R'}
+                      </div>
 
-                  <h2>Your account</h2>
+                      <div className="account-profile-heading">
+                        <span className="account-status">
+                          <span className="account-status-dot" />
+                          ACCOUNT ACTIVE
+                        </span>
 
-                  <p>You are signed in to Rally Badminton Analytics.</p>
+                        <h2>{user.username}</h2>
+                        <p>Welcome to your Rally account.</p>
+                      </div>
+                    </div>
 
-                  <div className="result-meta">
-                    <span>Username</span>
-                    <strong>{user.username}</strong>
+                    <div className="account-section-heading">
+                      <h3>Personal information</h3>
+                      <span>Your account details</span>
+                    </div>
 
-                    <span>Email</span>
-                    <strong>{user.email}</strong>
+                    <div className="account-details-grid">
+                      <div className="account-detail-card">
+                        <span>USERNAME</span>
+                        <strong>{user.username}</strong>
+                      </div>
 
-                    <span>Account ID</span>
-                    <strong>{user.id}</strong>
-                  </div>
+                      <div className="account-detail-card">
+                        <span>EMAIL ADDRESS</span>
+                        <strong>{user.email}</strong>
+                      </div>
 
-                  <button
-                    className="primary-button"
-                    onClick={() => setPage('Analyse Stroke')}
-                  >
-                    Analyse a stroke →
-                  </button>
+                      <div className="account-detail-card account-id-card">
+                        <span>ACCOUNT ID</span>
+                        <strong>{user.id}</strong>
+                      </div>
+                    </div>
 
-                  <button
-                    className="secondary-button"
-                    onClick={handleLogout}
-                  >
-                    Log out
-                  </button>
+                    <div className="account-actions">
+                      <button
+                        className="primary-button"
+                        onClick={() => setPage('Analyse Stroke')}
+                      >
+                        Analyse a stroke →
+                      </button>
+
+                      <button
+                        className="secondary-button"
+                        onClick={handleLogout}
+                      >
+                        Log out
+                      </button>
+                    </div>
+                  </section>
                 </>
               ) : (
                 <>
