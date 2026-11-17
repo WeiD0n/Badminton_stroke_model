@@ -4919,3 +4919,14 @@ h1 > span {
     grid-template-columns: 1fr;
   }
 }
+
+.page-content.inner-page {
+  width: 100%;
+  max-width: none;
+  margin-left: 0;
+  margin-right: 0;
+}
+
+.account-options-authenticated {
+  width: 100%;
+}
