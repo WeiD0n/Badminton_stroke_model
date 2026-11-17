@@ -5252,3 +5252,87 @@ body {
     font-size: 13px;
   }
 }
+
+/* Stronger Dashboard hero typography: make the main message fill its panel. */
+.hero-card .hero-copy {
+  padding: 48px 46px !important;
+}
+
+.hero-card .hero-tag {
+  font-size: 14px !important;
+  letter-spacing: 1.8px !important;
+  padding: 12px 16px !important;
+}
+
+.hero-card .hero-copy h2 {
+  max-width: 680px !important;
+  font-size: clamp(48px, 4.3vw, 68px) !important;
+  line-height: 1.08 !important;
+  letter-spacing: -2.4px !important;
+  margin: 30px 0 22px !important;
+}
+
+.hero-card .hero-copy > p {
+  max-width: 590px !important;
+  font-size: clamp(17px, 1.25vw, 20px) !important;
+  line-height: 1.9 !important;
+  margin-bottom: 30px !important;
+}
+
+.hero-card .hero-button {
+  font-size: 17px !important;
+  padding: 17px 23px !important;
+}
+
+.hero-card .hero-note {
+  margin-top: 28px !important;
+  font-size: 12px !important;
+  letter-spacing: 1.3px !important;
+}
+
+.hero-card .visual-label {
+  font-size: 15px !important;
+  padding: 14px 17px !important;
+}
+
+.hero-card .visual-coordinate {
+  font-size: 11px !important;
+}
+
+.page-content > .welcome-row .eyebrow {
+  font-size: 13px !important;
+  letter-spacing: 2px !important;
+}
+
+.page-content > .welcome-row h1 {
+  font-size: clamp(38px, 3.4vw, 50px) !important;
+  letter-spacing: -1.8px !important;
+}
+
+.page-content > .welcome-row .subheading {
+  font-size: 17px !important;
+  line-height: 1.8 !important;
+}
+
+.page-content > .welcome-row .primary-button {
+  font-size: 16px !important;
+  padding: 17px 22px !important;
+}
+
+@media (max-width: 760px) {
+  .hero-card .hero-copy {
+    padding: 30px 24px !important;
+  }
+
+  .hero-card .hero-copy h2 {
+    font-size: clamp(38px, 9vw, 48px) !important;
+  }
+
+  .hero-card .hero-copy > p {
+    font-size: 16px !important;
+  }
+
+  .page-content > .welcome-row h1 {
+    font-size: 36px !important;
+  }
+}
