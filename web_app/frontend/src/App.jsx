@@ -4,9 +4,9 @@ import './App.css'
 import badmintonHero from './assets/Neon Badminton Pose Tracking Dashboard.png';
 
 const strokeTypes = [
-  { name: 'Smash', icon: '↗', description: 'Powerful attacking stroke' },
-  { name: 'Drop Shot', icon: '↗', description: 'Controlled shot near the net' },
-  { name: 'Clear', icon: '↗', description: 'High shot to the backcourt' },
+  { name: 'Smash', icon: '', description: 'Powerful attacking stroke' },
+  { name: 'Drop Shot', icon: '', description: 'Controlled shot near the net' },
+  { name: 'Clear', icon: '', description: 'High shot to the backcourt' },
 ]
 
 function App() {
@@ -772,7 +772,7 @@ function App() {
               <strong>Guest mode</strong>
               <p>Analyse strokes without an account.</p>
               <button onClick={() => setPage('Account')}>
-                Create free account ↗
+                Create free account 
               </button>
             </div>
           )}
@@ -785,7 +785,7 @@ function App() {
                 <strong>{user.username}</strong>
                 <small>Signed in</small>
               </span>
-              <span className="sidebar-user-arrow">↗</span>
+              <span className="sidebar-user-arrow"></span>
             </button>
           )}
           <div className="sidebar-footer">
@@ -1030,7 +1030,7 @@ function App() {
               </section>
 
               <section className="panel account-panel">
-                <div className="account-symbol">↗</div>
+                <div className="account-symbol"></div>
                 <p className="eyebrow">YOUR TRAINING JOURNEY</p>
                 <h2>Build consistency,<br />one stroke at a time.</h2>
                 <p className="account-description">
@@ -1479,7 +1479,7 @@ function App() {
                           disabled={isSkeletonOverlayLoading}
                         >
                           {isSkeletonOverlayLoading ? 'Generating overlay…' : 'Generate skeleton overlay'}
-                          {!isSkeletonOverlayLoading && <span>↗</span>}
+                          {!isSkeletonOverlayLoading && <span></span>}
                         </button>
                       )}
 
