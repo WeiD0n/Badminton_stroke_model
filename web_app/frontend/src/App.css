@@ -5134,3 +5134,121 @@ body {
     display: none;
   }
 }
+
+/* Dashboard-only typography enlargement.
+   Scoped to the Dashboard page so other screens and navigation remain unchanged. */
+.page-content:has(> .welcome-row) .eyebrow {
+  font-size: 11px;
+}
+
+.page-content:has(> .welcome-row) .welcome-row h1 {
+  font-size: clamp(32px, 3.2vw, 43px);
+}
+
+.page-content:has(> .welcome-row) .subheading {
+  font-size: 15px;
+}
+
+.page-content:has(> .welcome-row) .welcome-row > button {
+  font-size: 14px;
+  padding: 14px 19px;
+}
+
+.page-content:has(> .welcome-row) .hero-tag {
+  font-size: 11px;
+}
+
+.page-content:has(> .welcome-row) .hero-copy h2 {
+  font-size: clamp(36px, 3.8vw, 52px);
+}
+
+.page-content:has(> .welcome-row) .hero-copy > p {
+  font-size: 14px;
+  line-height: 1.85;
+}
+
+.page-content:has(> .welcome-row) .hero-button {
+  font-size: 14px;
+  padding: 14px 19px;
+}
+
+.page-content:has(> .welcome-row) .hero-note {
+  font-size: 10px;
+}
+
+.page-content:has(> .welcome-row) .visual-label {
+  font-size: 11px;
+  padding: 11px 13px;
+}
+
+.page-content:has(> .welcome-row) .visual-coordinate {
+  font-size: 9px;
+}
+
+.page-content:has(> .welcome-row) .section-heading h2,
+.page-content:has(> .welcome-row) .panel-heading h2 {
+  font-size: 20px;
+}
+
+.page-content:has(> .welcome-row) .section-heading p,
+.page-content:has(> .welcome-row) .panel-heading p {
+  font-size: 13px;
+}
+
+.page-content:has(> .welcome-row) .section-count,
+.page-content:has(> .welcome-row) .muted-tag {
+  font-size: 11px;
+}
+
+.page-content:has(> .welcome-row) .stroke-number {
+  font-size: 10px;
+}
+
+.page-content:has(> .welcome-row) .stroke-card h3 {
+  font-size: 16px;
+}
+
+.page-content:has(> .welcome-row) .stroke-card p {
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.page-content:has(> .welcome-row) .workflow-step strong {
+  font-size: 13px;
+}
+
+.page-content:has(> .welcome-row) .workflow-step p {
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.page-content:has(> .welcome-row) .account-panel h2 {
+  font-size: 25px;
+}
+
+.page-content:has(> .welcome-row) .account-description {
+  font-size: 13px;
+}
+
+.page-content:has(> .welcome-row) .account-panel .primary-button,
+.page-content:has(> .welcome-row) .account-panel .secondary-button {
+  font-size: 14px;
+}
+
+@media (max-width: 760px) {
+  .page-content:has(> .welcome-row) .welcome-row h1 {
+    font-size: 32px;
+  }
+
+  .page-content:has(> .welcome-row) .hero-copy h2 {
+    font-size: 36px;
+  }
+
+  .page-content:has(> .welcome-row) .subheading {
+    font-size: 14px;
+  }
+
+  .page-content:has(> .welcome-row) .hero-copy > p {
+    font-size: 13px;
+  }
+}
