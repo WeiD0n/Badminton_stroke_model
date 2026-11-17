@@ -1040,7 +1040,7 @@ function App() {
         )}
 
         {page === 'Analyse Stroke' && (
-          <section className="page-content inner-page upload-page">
+          <section className={`page-content inner-page upload-page ${analysisResult ? 'has-analysis-results' : ''}`}>
             <div className="upload-page-heading">
               <p className="eyebrow">VIDEO-BASED PERFORMANCE REVIEW</p>
               <h1>Analyse your stroke<span>.</span></h1>

@@ -9,12 +9,12 @@ from time import perf_counter
 # SETTINGS
 
 RAW_FOLDER = Path("dataset/raw_videos")
-SEQUENCE_FOLDER = Path("dataset/sequences_tracked")
-VISIBILITY_FOLDER = Path("dataset/visibility_tracked")
+SEQUENCE_FOLDER = Path("dataset/sequences")
+VISIBILITY_FOLDER = Path("dataset/visibility")
 
-CLASSES = ["smash", "drop", "clear"]
+CLASSES = ["clear","drop","smash"]
 TARGET_FRAMES = 30
-TARGET_TOTAL_PER_CLASS = 200
+TARGET_TOTAL_PER_CLASS = 1000
 VIDEO_EXTENSIONS = {".mp4", ".avi", ".mov", ".mkv"}
 
 # Expand the tracker box before sending the crop to MediaPipe.
@@ -614,6 +614,7 @@ def main():
     print("=" * 60)
     print(f"VIDEOS TO PROCESS: {len(jobs)}")
     print(f"CLASSES: {', '.join(CLASSES)}")
+    print(f"TARGET PER CLASS: {TARGET_TOTAL_PER_CLASS}")
     print(f"TARGET FRAMES: {TARGET_FRAMES}")
     print(f"SEQUENCES OUTPUT: {SEQUENCE_FOLDER}")
     print(f"VISIBILITY OUTPUT: {VISIBILITY_FOLDER}")
@@ -621,9 +622,10 @@ def main():
 
     print(
         "\nIMPORTANT:"
+        "\n- Target: 1,000 valid sequences per stroke."
         "\n- Each video needs one initial player selection."
         "\n- Landmark-guided boxes update as the player moves."
-        "\n- Results go to separate folders."
+        "\n- New outputs are saved separately in sequences/ and visibility/."
         "\n- Review low-detection videos before training."
     )
 
@@ -691,7 +693,40 @@ def main():
             f"{low} low-detection videos"
         )
 
-    print(f"\nSequences: {SEQUENCE_FOLDER}")
+    print("\\nFINAL DATASET COUNTS")
+    print("-" * 60)
+
+    for class_name in CLASSES:
+        sequence_folder = SEQUENCE_FOLDER / class_name
+        visibility_folder = VISIBILITY_FOLDER / class_name
+        valid_count = 0
+
+        if sequence_folder.exists() and visibility_folder.exists():
+            for seq_path in sequence_folder.glob("*.npy"):
+                vis_path = visibility_folder / f"{seq_path.stem}_visibility.npy"
+                if not vis_path.exists():
+                    continue
+                try:
+                    seq = np.load(seq_path, allow_pickle=False)
+                    vis = np.load(vis_path, allow_pickle=False)
+                    if (
+                        seq.shape == (TARGET_FRAMES, 99)
+                        and vis.shape == (TARGET_FRAMES, 33)
+                        and np.isfinite(seq).all()
+                        and np.isfinite(vis).all()
+                        and vis.min() >= 0
+                        and vis.max() <= 1
+                    ):
+                        valid_count += 1
+                except Exception:
+                    pass
+
+        print(
+            f"{class_name.upper()}: "
+            f"{valid_count}/{TARGET_TOTAL_PER_CLASS} valid sequences"
+        )
+
+    print(f"\\nSequences: {SEQUENCE_FOLDER}")
     print(f"Visibility: {VISIBILITY_FOLDER}")
     print("Inspect outputs before training.")
 

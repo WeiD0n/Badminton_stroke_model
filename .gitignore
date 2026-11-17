@@ -1,6 +1,23 @@
 venv/
 __pycache__/
 *.pyc
-
+.env
+*.env
 dataset/raw_videos/
 dataset/pose_previews/
+.pytest_cache/
+.mypy_cache/
+# Generated pose sequence dataset
+/dataset/sequences/
+
+# Local Docker environment
+/web_app/backend/.env.docker
+
+# Generated datasets
+/dataset/form_features/
+/dataset/form_scores/
+/dataset/rejected_sequences/
+/dataset/rejected_visibility/
+/dataset/sequences_tracked/
+/dataset/visibility/
+/dataset/visibility_tracked/

@@ -120,12 +120,12 @@ def build_classifier_features(pose_sequence):
 class Run059Classifier:
     def __init__(self, project_root: Path):
         run_dir = Path(project_root) / "evaluation" / "700_per_class_full_features" / "run_059"
-        model_path = run_dir / "final_model.keras"
+        model_path = run_dir / "saved_model"
         stats_path = run_dir / "normalisation_stats.npz"
-        if not model_path.is_file():
-            raise FileNotFoundError(f"Run-059 classifier model not found: {model_path}")
-        if not stats_path.is_file():
-            raise FileNotFoundError(f"Run-059 normalisation file not found: {stats_path}")
+        if not model_path.is_dir():
+            raise FileNotFoundError(f"Run-059 SavedModel not found: {model_path}")
+
+        self.model = tf.keras.models.load_model(model_path, compile=False)
 
         self.model = tf.keras.models.load_model(model_path, compile=False)
         with np.load(stats_path, allow_pickle=False) as stats:

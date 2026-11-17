@@ -1,0 +1,44 @@
+﻿# Secrets
+.env
+.env.*
+**/.env
+**/.env.*
+
+# Python environments and cache
+venv/
+.venv/
+**/venv/
+**/__pycache__/
+*.pyc
+
+# Git
+.git/
+.gitignore
+
+# Frontend dependencies
+node_modules/
+**/node_modules/
+
+# Dataset and unrelated project assets
+dataset/
+results/
+docs/
+tests/
+apps/
+
+# Exclude experimental evaluation runs
+evaluation/*
+!evaluation/700_per_class_full_features/
+evaluation/700_per_class_full_features/*
+!evaluation/700_per_class_full_features/run_059/
+!evaluation/700_per_class_full_features/run_059/*
+!evaluation/700_per_class_full_features/run_059/saved_model/
+!evaluation/700_per_class_full_features/run_059/saved_model/**
+
+# Exclude unrelated model assets
+models/*
+!models/form_evaluation/
+!models/form_evaluation/**
+
+# Frontend is deployed separately
+web_app/frontend/
