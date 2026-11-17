@@ -1056,7 +1056,7 @@ function App() {
                     <h2>Upload your video</h2>
                     <p>Choose a recording from your device.</p>
                   </div>
-                  <span className="muted-tag">GUEST ACCESS</span>
+                  <span className="muted-tag">{isSessionLoading ? "CHECKING SESSION" : user ? "ACCOUNT ACCESS" : "GUEST ACCESS"}</span>
                 </div>
 
                 <input
