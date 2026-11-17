@@ -751,7 +751,7 @@ function App() {
           </span>
         </button>
 
-        <div className="sidebar-label">WORKSPACE</div>
+        <div className="sidebar-label">Rally</div>
 
         <nav className="navigation">
           <button
@@ -818,7 +818,7 @@ function App() {
       <main className="main-content">
         <header className="topbar">
           <div className="breadcrumb">
-            Workspace <span>/</span> <strong>{page}</strong>
+            Rally <span>/</span> <strong>{page}</strong>
           </div>
           <div className="topbar-right">
             <span className="guest-pill">
