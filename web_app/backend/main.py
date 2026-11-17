@@ -8,6 +8,9 @@ import uuid
 import mimetypes
 import re
 import json
+import secrets
+import hashlib
+import hmac
 
 import boto3
 
@@ -34,7 +37,14 @@ from sqlalchemy.exc import IntegrityError
 
 from .database import get_db
 from .models import User, Analysis
-from .schemas import UserRegister, UserLogin, UserResponse, TokenResponse
+from .schemas import (
+    UserRegister,
+    UserLogin,
+    UserResponse,
+    UserRegistrationResponse,
+    PasswordResetRequest,
+    TokenResponse
+)
 
 from .auth import (
     hash_password,
@@ -1603,14 +1613,13 @@ def get_analysis_video(
 
 @app.post(
     "/api/auth/register",
-    response_model=UserResponse,
+    response_model=UserRegistrationResponse,
     status_code=status.HTTP_201_CREATED
 )
 def register_user(
     user_data: UserRegister,
     db: Session = Depends(get_db)
 ):
-    # Normalise email and username
     email = str(user_data.email).strip().lower()
     username = user_data.username.strip()
 
@@ -1620,7 +1629,6 @@ def register_user(
             detail="Username cannot be empty."
         )
 
-    # Check whether email already exists
     existing_user = db.query(User).filter(
         User.email == email
     ).first()
@@ -1631,11 +1639,21 @@ def register_user(
             detail="An account with this email already exists."
         )
 
-    # Create user with securely hashed password
+    # Generate recovery code
+    recovery_code = secrets.token_hex(16)
+
+    # Hash recovery code before database storage
+    recovery_code_hash = hashlib.sha256(
+        recovery_code.encode("utf-8")
+    ).hexdigest()
+
     new_user = User(
         email=email,
         username=username,
-        password_hash=hash_password(user_data.password)
+        password_hash=hash_password(user_data.password),
+        recovery_code_hash=recovery_code_hash,
+        recovery_code_failed_attempts=0,
+        token_version=0
     )
 
     try:
@@ -1645,13 +1663,102 @@ def register_user(
 
     except IntegrityError:
         db.rollback()
-
         raise HTTPException(
             status_code=409,
             detail="An account with this email already exists."
         )
 
-    return new_user
+    return {
+        "id": new_user.id,
+        "email": new_user.email,
+        "username": new_user.username,
+        "created_at": new_user.created_at,
+        "recovery_code": recovery_code
+    }
+
+
+@app.post("/api/auth/reset-password")
+def reset_password(
+    reset_data: PasswordResetRequest,
+    response: Response,
+    db: Session = Depends(get_db)
+):
+    email = str(reset_data.email).strip().lower()
+
+    user = db.query(User).filter(
+        User.email == email
+    ).first()
+
+    # Use the same response for unknown accounts and invalid codes.
+    invalid_code_error = HTTPException(
+        status_code=400,
+        detail="Invalid email or recovery code."
+    )
+
+    if not user or not user.recovery_code_hash:
+        raise invalid_code_error
+
+    now = datetime.now(timezone.utc)
+
+    # Check whether recovery attempts are temporarily locked.
+    if user.recovery_code_locked_until:
+        locked_until = user.recovery_code_locked_until
+
+        if locked_until.tzinfo is None:
+            locked_until = locked_until.replace(tzinfo=timezone.utc)
+
+        if locked_until > now:
+            raise HTTPException(
+                status_code=429,
+                detail="Too many failed attempts. Try again later."
+            )
+
+    # Hash the submitted recovery code.
+    submitted_hash = hashlib.sha256(
+        reset_data.recovery_code.encode("utf-8")
+    ).hexdigest()
+
+    # Verify the hash safely.
+    if not hmac.compare_digest(
+        submitted_hash,
+        user.recovery_code_hash
+    ):
+        user.recovery_code_failed_attempts += 1
+
+        if user.recovery_code_failed_attempts >= 5:
+            user.recovery_code_locked_until = (
+                now + timedelta(minutes=15)
+            )
+
+        db.commit()
+        raise invalid_code_error
+
+    # Reset password after successful recovery-code verification.
+    user.password_hash = hash_password(reset_data.new_password)
+
+    # Consume the recovery code so it cannot be reused.
+    user.recovery_code_hash = None
+    user.recovery_code_used_at = now
+    user.recovery_code_failed_attempts = 0
+    user.recovery_code_locked_until = None
+
+    # Invalidate all previously issued login tokens.
+    user.token_version += 1
+
+    db.commit()
+
+    # Clear the current authentication cookie.
+    response.delete_cookie(
+        key=AUTH_COOKIE_NAME,
+        path="/",
+        httponly=True,
+        secure=os.getenv("AUTH_COOKIE_SECURE", "false").lower() == "true",
+        samesite=os.getenv("AUTH_COOKIE_SAMESITE", "lax").lower()
+    )
+
+    return {
+        "message": "Password reset successfully. Please log in again."
+    }
 
 
 @app.post("/api/auth/login")
@@ -1668,7 +1775,10 @@ def login_user(
     if not user.is_active:
         raise HTTPException(status_code=403, detail="This account is inactive.")
 
-    access_token = create_access_token(str(user.id))
+    access_token = create_access_token(
+        str(user.id),
+        user.token_version
+    )
     cookie_secure = os.getenv("AUTH_COOKIE_SECURE", "false").lower() == "true"
     cookie_samesite = os.getenv("AUTH_COOKIE_SAMESITE", "lax").lower()
     if cookie_samesite not in {"lax", "strict", "none"}:

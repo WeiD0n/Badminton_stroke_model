@@ -33,9 +33,17 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
     return password_hash.verify(plain_password, hashed_password)
 
 
-def create_access_token(user_id: str) -> str:
-    expire = datetime.now(timezone.utc) + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-    payload = {"sub": user_id, "exp": expire}
+def create_access_token(user_id: str, token_version: int = 0) -> str:
+    expire = datetime.now(timezone.utc) + timedelta(
+        minutes=ACCESS_TOKEN_EXPIRE_MINUTES
+    )
+
+    payload = {
+        "sub": user_id,
+        "ver": token_version,
+        "exp": expire
+    }
+
     return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
 
 
@@ -78,10 +86,22 @@ def _user_from_token(token: str | None, db: Session, optional: bool = False) -> 
         raise credentials_exception
 
     user = db.query(User).filter(User.id == parsed_user_id).first()
+
     if user is None:
         raise credentials_exception
+
     if not user.is_active:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="This account is inactive.")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="This account is inactive."
+        )
+
+    # Reject tokens issued before a password reset.
+    token_version = payload.get("ver", 0)
+
+    if token_version != user.token_version:
+        raise credentials_exception
+
     return user
 
 

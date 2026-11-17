@@ -10,7 +10,8 @@ from sqlalchemy import (
     Float,
     ForeignKey,
     JSON,
-    String
+    String,
+    Integer
 )
 
 from sqlalchemy.dialects.postgresql import UUID
@@ -55,6 +56,35 @@ class User(Base):
         "Analysis",
         back_populates="user",
         cascade="all, delete-orphan"
+    )
+
+    # Password recovery
+    recovery_code_hash = Column(
+        String(255),
+        nullable=True
+    )
+
+    recovery_code_used_at = Column(
+        DateTime(timezone=True),
+        nullable=True
+    )
+
+    recovery_code_failed_attempts = Column(
+        Integer,
+        default=0,
+        nullable=False
+    )
+
+    recovery_code_locked_until = Column(
+        DateTime(timezone=True),
+        nullable=True
+    )
+
+    # Incrementing this invalidates previously issued JWT sessions.
+    token_version = Column(
+        Integer,
+        default=0,
+        nullable=False
     )
 
 
