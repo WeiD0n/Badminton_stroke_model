@@ -4721,3 +4721,98 @@ body {
     margin-left: 0;
   }
 }
+
+
+/* =========================================
+   ACCOUNT PAGE LAYOUT REPAIR
+   Keep the signed-in profile and activity
+   overview side by side at desktop widths.
+========================================= */
+
+.account-options:has(.account-profile) {
+  display: grid;
+  grid-template-columns: minmax(0, 1.55fr) minmax(280px, 0.85fr);
+  align-items: start;
+  gap: 24px;
+  width: 100%;
+  max-width: none;
+  margin: 28px 0 0;
+  padding: 0;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+}
+
+.account-options:has(.account-profile) > .account-profile {
+  width: 100%;
+  max-width: none;
+  min-width: 0;
+  margin: 0;
+}
+
+.account-options:has(.account-profile) > * {
+  min-width: 0;
+}
+
+.account-options:has(.account-profile) .account-profile,
+.account-options:has(.account-profile) .account-profile * {
+  text-align: left;
+}
+
+.account-options:has(.account-profile) .account-profile-header {
+  align-items: center;
+}
+
+.account-options:has(.account-profile) .account-details-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.account-options:has(.account-profile) .account-id-card {
+  grid-column: 1 / -1;
+}
+
+/* Keep account overview and quick links readable as separate cards. */
+.account-options:has(.account-profile) .account-activity,
+.account-options:has(.account-profile) .account-overview,
+.account-options:has(.account-profile) .account-quick-access,
+.account-options:has(.account-profile) .account-activity-card,
+.account-options:has(.account-profile) .account-side-panel {
+  min-width: 0;
+  width: 100%;
+  margin: 0;
+  text-align: left;
+}
+
+.account-options:has(.account-profile) .account-activity *,
+.account-options:has(.account-profile) .account-overview *,
+.account-options:has(.account-profile) .account-quick-access *,
+.account-options:has(.account-profile) .account-activity-card *,
+.account-options:has(.account-profile) .account-side-panel * {
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 900px) {
+  .account-options:has(.account-profile) {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 600px) {
+  .account-options:has(.account-profile) {
+    gap: 16px;
+    margin-top: 20px;
+  }
+
+  .account-options:has(.account-profile) .account-profile {
+    padding: 22px;
+  }
+
+  .account-options:has(.account-profile) .account-details-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .account-options:has(.account-profile) .account-id-card {
+    grid-column: auto;
+  }
+}
